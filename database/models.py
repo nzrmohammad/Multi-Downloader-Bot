@@ -12,12 +12,17 @@ class User(Base):
     daily_downloads = Column(Integer, default=0)
     total_downloads = Column(Integer, default=0)
     last_download_date = Column(Date, default=datetime.date.today)
-    subscription_tier = Column(String, default='free')  # Tiers: free, silver, gold, platinum
+    subscription_tier = Column(String, default='free')
     subscription_expiry_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # --- فیلدهای جدید برای تنظیمات ---
+    settings_yt_quality = Column(String, default='audio') # e.g., 'audio', 'video_720'
+    settings_spotify_quality = Column(String, default='audio') # e.g., 'audio'
+
     purchases = relationship("Purchase", back_populates="user")
 
+# ... The rest of the models (Purchase, FileCache, etc.) remain the same
 class Purchase(Base):
     __tablename__ = 'purchases'
     id = Column(Integer, primary_key=True)
@@ -26,7 +31,6 @@ class Purchase(Base):
     duration_days = Column(Integer)
     amount = Column(Integer, default=0)
     tier_purchased = Column(String)
-
     user = relationship("User", back_populates="purchases")
 
 class FileCache(Base):
@@ -34,14 +38,14 @@ class FileCache(Base):
     id = Column(Integer, primary_key=True)
     original_url = Column(String, unique=True, nullable=False, index=True)
     file_id = Column(String, nullable=False)
-    file_type = Column(String)  # 'audio' or 'video'
+    file_type = Column(String)
     file_size = Column(BigInteger)
 
 class ActivityLog(Base):
     __tablename__ = 'activity_log'
     id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, index=True)
-    activity_type = Column(String)  # 'download', 'login', 'command'
+    activity_type = Column(String)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     details = Column(String, nullable=True)
 
@@ -50,5 +54,5 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(BigInteger)
     message = Column(Text)
-    status = Column(String, default='open')  # 'open', 'closed'
+    status = Column(String, default='open')
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)

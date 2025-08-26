@@ -5,6 +5,25 @@ from telegram import Update
 from database.database import SessionLocal
 from database.models import User, Purchase, ActivityLog
 
+# ... get_or_create_user, set_user_plan, etc. remain the same ...
+
+# --- New Function to Update User Settings ---
+def set_user_quality_setting(user_id: int, platform: str, quality: str):
+    """Updates a user's download quality setting for a specific platform."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        db.close()
+        return
+
+    if platform == 'yt':
+        user.settings_yt_quality = quality
+    elif platform == 'spotify':
+        user.settings_spotify_quality = quality
+    
+    db.commit()
+    db.close()
+
 # --- User Management ---
 
 def get_or_create_user(update: Update) -> User:
@@ -21,11 +40,9 @@ def get_or_create_user(update: Update) -> User:
     else:
         user.username = username # Update username if changed
     
-    # Check for subscription expiration
     if user.subscription_tier != 'free' and user.subscription_expiry_date and user.subscription_expiry_date < datetime.datetime.utcnow():
         user.subscription_tier = 'free'
     
-    # Reset daily download count if a new day has started
     if user.last_download_date != datetime.date.today():
         user.daily_downloads = 0
         user.last_download_date = datetime.date.today()
@@ -45,7 +62,6 @@ def set_user_plan(user_id: int, tier: str, duration_days: int) -> bool:
         db.close()
         return False
 
-    # Calculate new expiry date
     if user.subscription_tier != 'free' and user.subscription_expiry_date and user.subscription_expiry_date > datetime.datetime.utcnow():
         new_expiry_date = user.subscription_expiry_date + datetime.timedelta(days=duration_days)
     else:
@@ -54,7 +70,6 @@ def set_user_plan(user_id: int, tier: str, duration_days: int) -> bool:
     user.subscription_tier = tier
     user.subscription_expiry_date = new_expiry_date
     
-    # Log the purchase/grant
     new_purchase = Purchase(user_id=user_id, duration_days=duration_days, tier_purchased=tier)
     db.add(new_purchase)
     
@@ -69,7 +84,7 @@ def can_download(user: User) -> bool:
     tier_limits = {
         'free': 5,
         'silver': 30,
-        'gold': float('inf'), # Unlimited
+        'gold': float('inf'),
         'platinum': float('inf')
     }
     limit = tier_limits.get(user.subscription_tier, 0)
