@@ -1,0 +1,9 @@
+python-telegram-bot
+python-dotenv
+celery
+redis
+sqlalchemy
+yt-dlp
+spotipy
+deemix
+apscheduler
