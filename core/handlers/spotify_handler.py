@@ -18,11 +18,8 @@ sp = spotipy.Spotify(
     retries=3
 )
 
-# --- رفع نهایی خطای 403: تنظیم User-Agent به روش جدید و مطمئن ---
 genius = lyricsgenius.Genius(
     config.GENIUS_ACCESS_TOKEN,
-    # Set timeout for network requests
-    timeout=20,
     # Set a user-agent to pretend we are a browser and avoid blocks
     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     verbose=False,
