@@ -1,6 +1,5 @@
 import logging
 import spotipy
-import lyricsgenius
 from spotipy.oauth2 import SpotifyClientCredentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -16,15 +15,6 @@ sp = spotipy.Spotify(
     auth_manager=auth_manager,
     requests_timeout=15,  # Timeout in seconds
     retries=3
-)
-
-genius = lyricsgenius.Genius(
-    config.GENIUS_ACCESS_TOKEN,
-    # Set a user-agent to pretend we are a browser and avoid blocks
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    verbose=False,
-    remove_section_headers=True,
-    skip_non_songs=True
 )
 
 
