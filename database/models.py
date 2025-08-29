@@ -15,14 +15,11 @@ class User(Base):
     subscription_tier = Column(String, default='free')
     subscription_expiry_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-    # --- فیلدهای جدید برای تنظیمات ---
-    settings_yt_quality = Column(String, default='audio') # e.g., 'audio', 'video_720'
-    settings_spotify_quality = Column(String, default='audio') # e.g., 'audio'
-
+    language = Column(String, default='en') 
+    settings_yt_quality = Column(String, default='audio')
+    settings_spotify_quality = Column(String, default='audio')
     purchases = relationship("Purchase", back_populates="user")
 
-# ... The rest of the models (Purchase, FileCache, etc.) remain the same
 class Purchase(Base):
     __tablename__ = 'purchases'
     id = Column(Integer, primary_key=True)

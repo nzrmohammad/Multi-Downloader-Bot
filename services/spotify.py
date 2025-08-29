@@ -1,3 +1,5 @@
+# services/spotify.py
+
 import re
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -12,11 +14,10 @@ SPOTIFY_URL_PATTERN = re.compile(r"https://open\.spotify\.com/(track|album|playl
 
 class SpotifyService(BaseService):
     def __init__(self):
-        # --- رفع خطای شبکه: افزایش Timeout برای اسپاتیفای ---
         auth_manager = SpotifyClientCredentials(client_id=config.SPOTIPY_CLIENT_ID, client_secret=config.SPOTIPY_CLIENT_SECRET)
         self.sp = spotipy.Spotify(
             auth_manager=auth_manager,
-            requests_timeout=15,  # Timeout in seconds
+            requests_timeout=15,
             retries=3
         )
 
@@ -74,7 +75,6 @@ class SpotifyService(BaseService):
             f"🗓 **Release Date:** `{release_date}`\n"
             f"❗️ **Is Local:** `False`\n"
             f"🌐 **ISRC:** `{isrc}`\n\n"
-            f"IMAGE ({album_art_url})\n"
             f"Track id: `{track_id}`"
         )
 
@@ -91,24 +91,33 @@ class SpotifyService(BaseService):
         return caption, InlineKeyboardMarkup(keyboard)
 
     def build_album_panel(self, album_info: dict):
-        album_id = album_info['id']
-        album_name = album_info['name']
-        artists = ', '.join([artist['name'] for artist in album_info['artists']])
-        total_tracks = album_info['total_tracks']
-        release_date = album_info['release_date']
-        artist_id = album_info['artists'][0]['id']
+        album_id = album_info.get('id')
+        album_name = album_info.get('name', 'N/A')
+        artists = ', '.join([artist.get('name', 'N/A') for artist in album_info.get('artists', [])])
+        total_tracks = album_info.get('total_tracks', 'N/A')
+        release_date = album_info.get('release_date', 'N/A')
 
         caption = (f"📀 **Album:** `{album_name}`\n"
-                   f"👥 **Artists:** `{artists}`\n"
+                   f"👥 **Artists:** `{artists or 'N/A'}`\n"
                    f"🎶 **Total tracks:** `{total_tracks}`\n"
                    f"📅 **Published on:** `{release_date}`")
 
         keyboard = [
-            [InlineKeyboardButton("🖼 Download Album Image!", url=album_info['images'][0]['url'])],
+            [InlineKeyboardButton("🖼 Download Album Image!", url=album_info.get('images', [{}])[0].get('url', ''))],
             [InlineKeyboardButton("👀 View Album Track's!", callback_data=f"s:vat:{album_id}:1")],
-            [InlineKeyboardButton("🧑‍🎤 View Album Artist's!", callback_data=f"s:vr:{artist_id}:{album_id}")],
-            [InlineKeyboardButton("🎵 Listen On Spotify", url=album_info['external_urls']['spotify']),
-             InlineKeyboardButton("❌ Close", callback_data="s:c")]]
+        ]
+
+        # Safely add the "View Artist" button only if artist info is available
+        if album_info.get('artists'):
+            artist_id = album_info['artists'][0].get('id')
+            if artist_id:
+                keyboard.append([InlineKeyboardButton("🧑‍🎤 View Album Artist's!", callback_data=f"s:vr:{artist_id}:{album_id}")])
+
+        keyboard.append([
+            InlineKeyboardButton("🎵 Listen On Spotify", url=album_info.get('external_urls', {}).get('spotify', '')),
+            InlineKeyboardButton("❌ Close", callback_data="s:c")
+        ])
+        
         return caption, InlineKeyboardMarkup(keyboard)
 
     async def reshow_track_panel(self, track_id: str, message: Message):

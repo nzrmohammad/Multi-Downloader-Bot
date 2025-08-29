@@ -5,7 +5,34 @@ from telegram import Update
 from database.database import SessionLocal
 from database.models import User, Purchase, ActivityLog
 
-# ... get_or_create_user, set_user_plan, etc. remain the same ...
+def get_download_stats(user_id: int) -> dict:
+    """Gets a user's download stats grouped by service."""
+    db = SessionLocal()
+    stats = {}
+    
+    # Query for download activities
+    activities = db.query(ActivityLog.details).filter(
+        ActivityLog.user_id == user_id,
+        ActivityLog.activity_type == 'download'
+    ).all()
+    
+    # Process activities to count downloads per service
+    for activity in activities:
+        if activity.details:
+            service = activity.details.split(':')[0]
+            stats[service] = stats.get(service, 0) + 1
+            
+    db.close()
+    return stats
+
+def set_user_language(user_id: int, language: str):
+    """Sets the user's preferred language."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user:
+        user.language = language
+        db.commit()
+    db.close()
 
 # --- New Function to Update User Settings ---
 def set_user_quality_setting(user_id: int, platform: str, quality: str):

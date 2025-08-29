@@ -1,3 +1,5 @@
+# config.py
+
 import os
 from dotenv import load_dotenv
 
@@ -11,7 +13,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID")) if os.getenv("ADMIN_ID") else None
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 
-# --- New Genius API Configuration ---
+# --- Genius API Configuration Re-added ---
 GENIUS_ACCESS_TOKEN = os.getenv("GENIUS_ACCESS_TOKEN")
 
 # Validate essential configurations
@@ -19,5 +21,6 @@ if not BOT_TOKEN or not ADMIN_ID:
     raise ValueError("BOT_TOKEN and ADMIN_ID must be set in the .env file!")
 if not SPOTIPY_CLIENT_ID or not SPOTIPY_CLIENT_SECRET:
     raise ValueError("SPOTIPY_CLIENT_ID and SPOTIPY_CLIENT_SECRET must be set!")
+# The following check is now re-added
 if not GENIUS_ACCESS_TOKEN:
     raise ValueError("GENIUS_ACCESS_TOKEN must be set!")

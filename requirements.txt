@@ -5,6 +5,8 @@ redis
 sqlalchemy
 yt-dlp
 spotipy
+requests
+musicxmatch-api
 deemix
 apscheduler
 selenium
