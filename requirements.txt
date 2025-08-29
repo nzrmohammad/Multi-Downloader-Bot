@@ -10,3 +10,5 @@ musicxmatch-api
 deemix
 apscheduler
 selenium
+beautifulsoup4
+lxml

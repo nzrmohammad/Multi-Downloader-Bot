@@ -48,7 +48,7 @@ async def main_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await handle_admin_callback(update, context)
     elif prefix == 'settings':
         await handle_settings_callback(update, context)
-    elif prefix in ['yt', 'sc', 'spotify']: 
+    elif prefix in ['yt', 'sc', 'spotify']:
         await handle_download_callback(update, context)
     else:
         user_id = update.effective_user.id

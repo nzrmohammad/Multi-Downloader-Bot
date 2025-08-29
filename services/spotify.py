@@ -24,13 +24,12 @@ class SpotifyService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SPOTIFY_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         user = get_or_create_user(update)
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return
 
-        url = update.message.text
         match = re.match(SPOTIFY_URL_PATTERN, url)
         link_type, item_id = match.groups()
 

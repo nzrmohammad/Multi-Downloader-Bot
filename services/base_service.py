@@ -10,6 +10,6 @@ class BaseService:
         """Checks if this service can process the given URL."""
         raise NotImplementedError("This method must be implemented by a subclass.")
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         """Processes the user's request and presents download options."""
         raise NotImplementedError("This method must be implemented by a subclass.")
