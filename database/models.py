@@ -1,6 +1,6 @@
 import datetime
 from sqlalchemy import (Column, Integer, String, BigInteger, DateTime,
-                        ForeignKey, Text, Date, func)
+                        ForeignKey, Text, Date, func, Boolean)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -11,6 +11,7 @@ class User(Base):
     username = Column(String, nullable=True)
     daily_downloads = Column(Integer, default=0)
     total_downloads = Column(Integer, default=0)
+    download_stats = Column(Text, default='{}')
     last_download_date = Column(Date, default=datetime.date.today)
     subscription_tier = Column(String, default='free')
     subscription_expiry_date = Column(DateTime, nullable=True)
@@ -53,3 +54,9 @@ class Ticket(Base):
     message = Column(Text)
     status = Column(String, default='open')
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+class ServiceStatus(Base):
+    __tablename__ = 'service_status'
+    id = Column(Integer, primary_key=True)
+    service_name = Column(String, unique=True, nullable=False)
+    is_enabled = Column(Boolean, default=True)

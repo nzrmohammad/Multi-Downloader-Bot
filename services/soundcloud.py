@@ -1,5 +1,3 @@
-# services/soundcloud.py
-
 import re
 import json
 import logging
@@ -10,6 +8,7 @@ from telegram.ext import ContextTypes
 
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
+from core.log_forwarder import forward_download_to_log_channel
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +146,7 @@ class SoundCloudService(BaseService):
                 f"▪️ **مدت زمان:** `{duration_str}`"
             )
 
-            await context.bot.send_audio(
+            sent_message = await context.bot.send_audio(
                 chat_id=update.effective_chat.id,
                 audio=bytes(audio_content),
                 caption=caption, # <-- استفاده از کپشن جدید
@@ -156,6 +155,9 @@ class SoundCloudService(BaseService):
                 duration=int(duration_ms / 1000),
                 filename=f"{title}.mp3",
                 parse_mode='Markdown'
+            )
+            await forward_download_to_log_channel(
+                context, user, sent_message, "soundcloud", url
             )
             await msg.delete()
 

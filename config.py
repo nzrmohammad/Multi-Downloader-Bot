@@ -1,5 +1,3 @@
-# config.py
-
 import os
 from dotenv import load_dotenv
 
@@ -8,6 +6,8 @@ load_dotenv()
 # Telegram configurations
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID")) if os.getenv("ADMIN_ID") else None
+SENSITIVE_SERVICES = os.getenv("SENSITIVE_SERVICES", "").split(',')
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID")) if os.getenv("LOG_CHANNEL_ID") else None
 
 # Spotify API configurations
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")

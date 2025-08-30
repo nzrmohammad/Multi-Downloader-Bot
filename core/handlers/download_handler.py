@@ -10,6 +10,7 @@ from core.user_manager import get_or_create_user, can_download, increment_downlo
 from database.database import SessionLocal
 from database.models import FileCache
 from .spotify_handler import sp
+from core.log_forwarder import forward_download_to_log_channel
 
 # This is a temporary storage for download info before confirmation
 download_requests = {}
@@ -164,7 +165,7 @@ async def start_actual_download(query, user, dl_info, context):
                 f"▪️ **مدت زمان:** `{duration_str}`"
             )
 
-            await context.bot.send_audio(
+            sent_message = await context.bot.send_audio(
                 chat_id=user.user_id,
                 audio=file_to_send,
                 caption=caption,
@@ -173,7 +174,9 @@ async def start_actual_download(query, user, dl_info, context):
                 duration=int(duration),
                 parse_mode='Markdown'
             )
-
+            await forward_download_to_log_channel(
+                context, user, sent_message, service, download_url
+            )
         increment_download_count(user.user_id)
         log_activity(user.user_id, 'download', details=f"{service}:{quality}:{resource_id}")
         await query.message.delete()

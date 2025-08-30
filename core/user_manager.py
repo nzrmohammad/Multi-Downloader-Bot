@@ -1,4 +1,5 @@
 import datetime
+import json
 from sqlalchemy import func
 from telegram import Update
 
@@ -6,24 +7,13 @@ from database.database import SessionLocal
 from database.models import User, Purchase, ActivityLog
 
 def get_download_stats(user_id: int) -> dict:
-    """Gets a user's download stats grouped by service."""
+    """Gets a user's download stats from the new JSON column."""
     db = SessionLocal()
-    stats = {}
-    
-    # Query for download activities
-    activities = db.query(ActivityLog.details).filter(
-        ActivityLog.user_id == user_id,
-        ActivityLog.activity_type == 'download'
-    ).all()
-    
-    # Process activities to count downloads per service
-    for activity in activities:
-        if activity.details:
-            service = activity.details.split(':')[0]
-            stats[service] = stats.get(service, 0) + 1
-            
+    user = db.query(User).filter(User.user_id == user_id).first()
     db.close()
-    return stats
+    if user and user.download_stats:
+        return json.loads(user.download_stats)
+    return {}
 
 def set_user_language(user_id: int, language: str):
     """Sets the user's preferred language."""
@@ -128,7 +118,7 @@ def increment_download_count(user_id: int):
     db.close()
 
 def log_activity(user_id: int, activity_type: str, details: str = None, db_session=None):
-    """Logs a user activity."""
+    """Logs a user activity and updates their download stats."""
     close_session = False
     if db_session is None:
         db_session = SessionLocal()
@@ -136,6 +126,17 @@ def log_activity(user_id: int, activity_type: str, details: str = None, db_sessi
         
     log = ActivityLog(user_id=user_id, activity_type=activity_type, details=details)
     db_session.add(log)
+    
+    # --- بخش جدید برای به‌روزرسانی آمار ---
+    if activity_type == 'download' and details:
+        user = db_session.query(User).filter(User.user_id == user_id).first()
+        if user:
+            stats = json.loads(user.download_stats or '{}')
+            service = details.split(':')[0]
+            stats[service] = stats.get(service, 0) + 1
+            user.download_stats = json.dumps(stats)
+    # --- پایان بخش جدید ---
+    
     db_session.commit()
     
     if close_session:
@@ -151,3 +152,29 @@ def get_users_paginated(page: int = 1, per_page: int = 10):
     total_users = db.query(func.count(User.user_id)).scalar()
     db.close()
     return users, total_users
+
+def find_user_by_id(user_id: int) -> User | None:
+    """Finds a user by their Telegram ID."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.user_id == user_id).first()
+    db.close()
+    return user
+
+def delete_user_by_id(user_id: int) -> bool:
+    """Deletes a user from the database."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user:
+        db.delete(user)
+        db.commit()
+        db.close()
+        return True
+    db.close()
+    return False
+
+def get_all_user_ids() -> list[int]:
+    """Returns a list of all user IDs from the database."""
+    db = SessionLocal()
+    users = db.query(User.user_id).all()
+    db.close()
+    return [user_id for (user_id,) in users]
