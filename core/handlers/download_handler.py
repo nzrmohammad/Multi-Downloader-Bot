@@ -16,6 +16,8 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 from spotdl import Spotdl
 from yt_dlp.utils import DownloadError
+import subprocess
+import json
 
 import config
 from core.settings import settings
@@ -222,59 +224,84 @@ async def start_actual_download(query, user, dl_info, context):
 
 async def handle_spotify_download(query, user, track_id, context, original_caption):
     """
-    Downloads a Spotify track using the spotdl library for the highest quality.
+    یک آهنگ اسپاتیفای را با استفاده از آخرین نسخه spotdl، پراکسی و کوکی یوتیوب دانلود می‌کند.
     """
     await _edit_message_safe(query, "✅ درخواست تایید شد. در حال اتصال به سرورهای موسیقی...", query.message.photo)
-    
+
     download_path = f"downloads/{uuid.uuid4()}"
     os.makedirs(download_path, exist_ok=True)
-    
     filename = None
+    
     try:
-        # FIX: Changed 'output' to the correct 'output_format' argument
-        spotdl_client = Spotdl(
-            client_id=settings.SPOTIPY_CLIENT_ID,
-            client_secret=settings.SPOTIPY_CLIENT_SECRET,
-            output=f"{download_path}/{{title}}.{{output-ext}}",
-            headless=True,
-            ffmpeg="ffmpeg" 
-        )
-
         spotify_url = f"https://open.spotify.com/track/{track_id}"
+
+        command = [
+            "spotdl", "download", spotify_url,
+            "--output", f"{download_path}/{{title}}.{{output-ext}}",
+            "--log-level", "ERROR",
+            "--headless",
+            "--no-cache"
+        ]
         
+        # افزودن پراکسی به دستور
+        proxy = config.get_random_proxy()
+        if proxy:
+            command.extend(["--proxy", proxy])
+            logger.info(f"Using proxy for spotdl: {proxy}")
+
+        # --- راه حل نهایی: افزودن کوکی یوتیوب به دستور ---
+        if settings.YOUTUBE_COOKIES_FILE and os.path.exists(settings.YOUTUBE_COOKIES_FILE):
+            command.extend(["--cookie", settings.YOUTUBE_COOKIES_FILE])
+            logger.info(f"Using YouTube cookies file for spotdl: {settings.YOUTUBE_COOKIES_FILE}")
+        # --------------------------------------------------
+
+        logger.info(f"Executing spotdl command: {' '.join(command)}")
+
         loop = asyncio.get_running_loop()
-        songs = await loop.run_in_executor(
-            None, lambda: spotdl_client.download([spotify_url])
+        process = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
         )
 
-        if not songs or not songs[0][1]:
-            raise Exception("spotdl could not download the song.")
+        if process.returncode != 0:
+            logger.error(f"spotdl failed. stderr: {process.stderr}")
+            raise Exception("سرویس‌دهنده موسیقی قادر به پردازش این لینک نیست. لطفاً دقایقی دیگر دوباره تلاش کنید.")
 
-        song_object, filename = songs[0]
+        downloaded_files = os.listdir(download_path)
+        if not downloaded_files:
+            raise Exception("فایل خروجی توسط spotdl ایجاد نشد.")
+        
+        filename = os.path.join(download_path, downloaded_files[0])
         
         await _edit_message_safe(query, "فایل با بالاترین کیفیت دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
         
-        final_caption = f"{song_object.name} by {', '.join(song_object.artists)}"
-        
+        info_dict = {}
+        with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
+            try:
+                info_dict = await loop.run_in_executor(None, lambda: ydl.extract_info(spotify_url, download=False))
+            except Exception as e:
+                logger.warning(f"Could not get metadata for spotify track {track_id}: {e}")
+
+        final_caption = info_dict.get('title', os.path.basename(filename))
+        performer = info_dict.get('artist', 'Unknown Artist')
+        title = info_dict.get('track', 'Unknown Title')
+        duration = int(info_dict.get('duration', 0))
+
         with open(filename, 'rb') as file_to_send:
             sent_message = await context.bot.send_audio(
-                chat_id=user.user_id,
-                audio=file_to_send,
-                filename=os.path.basename(filename),
-                caption=final_caption,
-                title=song_object.name,
-                performer=', '.join(song_object.artists),
-                duration=int(song_object.duration)
+                chat_id=user.user_id, audio=file_to_send,
+                filename=os.path.basename(filename), caption=final_caption,
+                title=title, performer=performer, duration=duration
             )
-        
+
         await increment_download_count(user.user_id)
-        await log_activity(user.user_id, 'download', details=f"spotify:audio_hq")
+        await log_activity(user.user_id, 'download', details="spotify:audio_hq")
         await forward_download_to_log_channel(context, user, sent_message, "spotify_hq", spotify_url)
         await query.message.delete()
 
     except Exception as e:
-        logger.error(f"Spotify (spotdl) download error: {e}", exc_info=True)
-        error_message = "❌ یک خطای پیش‌بینی نشده در هنگام دانلود از اسپاتیفای رخ داد."
+        logger.error(f"خطا در دانلود از اسپاتیفای (spotdl v4 subprocess): {e}", exc_info=True)
+        error_message = f"❌ خطای پیش‌بینی نشده در دانلود از اسپاتیفای.\n\n`{e}`"
         await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
     finally:
         if os.path.exists(download_path):

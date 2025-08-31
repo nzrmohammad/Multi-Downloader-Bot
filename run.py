@@ -1,4 +1,4 @@
-# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/run.py
+# run.py
 
 import logging
 import asyncio
@@ -34,12 +34,13 @@ logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-# FIX: Set noisy libraries to WARNING level to keep logs clean
+# کاهش سطح لاگ کتابخانه‌های پر سر و صدا برای تمیز نگه داشتن لاگ‌ها
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("aiohttp").setLevel(logging.WARNING)
-logging.getLogger("asyncio").setLevel(logging.WARNING) # This will hide the "Unclosed connection" error
+# این خط خطای 'Unclosed connection' را مخفی می‌کند
+logging.getLogger("asyncio").setLevel(logging.WARNING) 
 
 
 async def main() -> None:
@@ -51,6 +52,7 @@ async def main() -> None:
     logger.info("Initializing services in database...")
     await initialize_services()
 
+    # اجرای اولیه اسکن پراکسی در هنگام راه‌اندازی ربات
     asyncio.create_task(config.update_and_test_proxies())
 
     application = create_application()
@@ -62,9 +64,12 @@ async def main() -> None:
         await application.updater.start_polling()
         
         scheduler = setup_scheduler(application)
-        scheduler.add_job(config.update_and_test_proxies, 'interval', hours=12)
-        logger.info("Proxy update and validation job scheduled to run every 12 hours.")
         
+        # زمان‌بندی اجرای اسکن پراکسی برای هر روز ساعت ۳ بامداد
+        scheduler.add_job(config.update_and_test_proxies, 'cron', hour=3, minute=0)
+        logger.info("Proxy update and validation job scheduled to run daily at 03:00.")
+        
+        # این بخش ربات را در حالت اجرا نگه می‌دارد
         await asyncio.Event().wait()
 
 

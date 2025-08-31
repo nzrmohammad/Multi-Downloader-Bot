@@ -20,7 +20,6 @@ TEST_URL = 'https://api.google.com'
 MAX_CONCURRENT_TESTS = 500
 TEST_TIMEOUT = 3
 REVALIDATION_THRESHOLD = 20
-# FIX: Added a setting for the initial quick test
 INITIAL_QUICK_TEST_COUNT = 100
 
 async def test_proxy(session: aiohttp.ClientSession, proxy: str) -> str | None:
@@ -38,7 +37,6 @@ async def test_proxy(session: aiohttp.ClientSession, proxy: str) -> str | None:
 async def update_and_test_proxies():
     """
     لیست پراکسی‌ها را آپدیت و اعتبارسنجی می‌کند.
-    ابتدا یک تست سریع روی تعداد کمی پراکسی انجام می‌دهد و سپس تست کامل را در پس‌زمینه ادامه می‌دهد.
     """
     global RAW_PROXIES, VALIDATED_PROXIES
     
@@ -62,7 +60,7 @@ async def update_and_test_proxies():
                 logger.warning("Proxy source returned an empty list.")
                 return
             
-            random.shuffle(proxies_from_url) # پراکسی‌ها را مخلوط می‌کنیم
+            random.shuffle(proxies_from_url)
             RAW_PROXIES = proxies_from_url
             logger.info(f"Fetched {len(RAW_PROXIES)} raw proxies.")
 
@@ -70,7 +68,6 @@ async def update_and_test_proxies():
             logger.error(f"Failed to fetch proxies: {e}")
             return
 
-        # --- FIX: مرحله "پیش‌گرمایش" ---
         logger.info(f"Starting initial quick test on {INITIAL_QUICK_TEST_COUNT} random proxies...")
         quick_test_proxies = RAW_PROXIES[:INITIAL_QUICK_TEST_COUNT]
         
@@ -85,9 +82,8 @@ async def update_and_test_proxies():
         else:
             logger.warning("Quick test found no working proxies. Starting full scan immediately.")
 
-        # --- ادامه تست کامل در پس‌زمینه ---
         logger.info("Continuing with full validation in the background...")
-        full_validated = list(VALIDATED_PROXIES) # پراکسی‌های اولیه را نگه می‌داریم
+        full_validated = list(VALIDATED_PROXIES)
         remaining_proxies = RAW_PROXIES[INITIAL_QUICK_TEST_COUNT:]
         
         async with aiohttp.ClientSession() as session:
@@ -96,15 +92,14 @@ async def update_and_test_proxies():
                 batch = tasks[i:i + MAX_CONCURRENT_TESTS]
                 results = await asyncio.gather(*batch)
                 full_validated.extend([res for res in results if res])
-                # این لاگ فقط در کنسول نمایش داده می‌شود و برای کاربر مزاحمتی ندارد
-                logger.info(f"Background validation progress: Total valid proxies so far: {len(full_validated)}")
+                # این لاگ دیگر در حالت INFO نمایش داده نمی‌شود
+                logger.debug(f"Background validation progress: Total valid proxies so far: {len(full_validated)}")
 
         if full_validated:
             logger.info(f"Full validation complete. Total working proxies: {len(full_validated)}.")
             VALIDATED_PROXIES = full_validated
         else:
             logger.warning("Full validation could not find any working proxies.")
-            # اگر پراکسی معتبری پیدا نشد، لیست خالی می‌ماند
             VALIDATED_PROXIES = []
 
 
