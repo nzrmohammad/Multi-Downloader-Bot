@@ -1,15 +1,19 @@
-# run.py
+# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/run.py
 
 import logging
 import asyncio
 from logging.handlers import RotatingFileHandler
+import uvloop  # <--- افزودن uvloop
 
 from bot.application import create_application
 from bot.handlers import register_handlers
 from database import database
-from core.handlers.service_manager import initialize_services # این تابع باید async شود
+from core.handlers.service_manager import initialize_services
 from core.scheduler import setup_scheduler
 import config
+
+# --- نصب uvloop برای عملکرد بهتر asyncio ---
+uvloop.install()
 
 # --- تنظیمات لاگ (کلاس ContextFilter و بقیه کدها بدون تغییر) ---
 class ContextFilter(logging.Filter):
@@ -43,7 +47,7 @@ async def main() -> None:
     
     # --- ثبت سرویس‌ها در پایگاه داده ---
     logger.info("Initializing services in database...")
-    # await initialize_services() # توجه: این تابع باید ابتدا async شود تا بتوانید آن را فعال کنید.
+    await initialize_services()
 
     # --- به‌روزرسانی پراکسی‌ها ---
     config.update_proxies_from_source()
@@ -53,7 +57,7 @@ async def main() -> None:
     register_handlers(application)
     
     # --- اجرای ربات و زمان‌بند در یک حلقه asyncio ---
-    logger.info("Starting bot polling...")
+    logger.info("Starting bot polling with uvloop...")
     async with application:
         await application.start()
         await application.updater.start_polling()

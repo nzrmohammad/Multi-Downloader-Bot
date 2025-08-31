@@ -1,8 +1,6 @@
-# core/user_manager.py
-
 import datetime
 import json
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Update
 
@@ -26,7 +24,7 @@ async def get_or_create_user(db: AsyncSession, update: Update) -> User:
     if not user:
         user = User(user_id=user_id, username=username)
         db.add(user)
-        await log_activity(db, user_id, 'register')
+        await log_activity(db, user, 'register')
     else:
         user.username = username
         if user.subscription_tier != 'free' and user.subscription_expiry_date and user.subscription_expiry_date < datetime.datetime.utcnow():
@@ -50,9 +48,8 @@ async def get_all_user_ids(db: AsyncSession) -> list[int]:
     result = await db.execute(select(User.user_id))
     return list(result.scalars().all())
 
-async def get_download_stats(db: AsyncSession, user_id: int) -> dict:
+def get_download_stats(user: User) -> dict:
     """آمار دانلود کاربر را از ستون JSON دریافت می‌کند."""
-    user = await find_user_by_id(db, user_id)
     if user and user.download_stats:
         return json.loads(user.download_stats)
     return {}
@@ -61,9 +58,8 @@ async def get_download_stats(db: AsyncSession, user_id: int) -> dict:
 # توابع مربوط به اشتراک و تنظیمات کاربر (Subscription & Settings)
 # =================================================================
 
-async def set_user_plan(db: AsyncSession, user_id: int, tier: str, duration_days: int) -> bool:
+async def set_user_plan(db: AsyncSession, user: User, tier: str, duration_days: int) -> bool:
     """پلن اشتراک یک کاربر را تنظیم یا تمدید می‌کند."""
-    user = await find_user_by_id(db, user_id)
     if not user:
         return False
 
@@ -75,22 +71,20 @@ async def set_user_plan(db: AsyncSession, user_id: int, tier: str, duration_days
     user.subscription_tier = tier
     user.subscription_expiry_date = new_expiry_date
     
-    new_purchase = Purchase(user_id=user_id, duration_days=duration_days, tier_purchased=tier)
+    new_purchase = Purchase(user_id=user.user_id, duration_days=duration_days, tier_purchased=tier)
     db.add(new_purchase)
     
     await db.commit()
     return True
 
-async def set_user_language(db: AsyncSession, user_id: int, language: str):
+async def set_user_language(db: AsyncSession, user: User, language: str):
     """زبان مورد علاقه کاربر را تنظیم می‌کند."""
-    user = await find_user_by_id(db, user_id)
     if user:
         user.language = language
         await db.commit()
 
-async def set_user_quality_setting(db: AsyncSession, user_id: int, platform: str, quality: str):
+async def set_user_quality_setting(db: AsyncSession, user: User, platform: str, quality: str):
     """تنظیمات کیفیت دانلود کاربر را به‌روز می‌کند."""
-    user = await find_user_by_id(db, user_id)
     if not user: return
 
     if platform == 'yt':
@@ -104,21 +98,19 @@ async def set_user_quality_setting(db: AsyncSession, user_id: int, platform: str
 # توابع مدیریت دانلود و فعالیت (Download & Activity)
 # =================================================================
 
-async def increment_download_count(db: AsyncSession, user_id: int):
+async def increment_download_count(db: AsyncSession, user: User):
     """تعداد دانلودهای روزانه و کل کاربر را یک واحد افزایش می‌دهد."""
-    user = await find_user_by_id(db, user_id)
     if user:
         user.daily_downloads += 1
         user.total_downloads += 1
         await db.commit()
 
-async def log_activity(db: AsyncSession, user_id: int, activity_type: str, details: str = None):
+async def log_activity(db: AsyncSession, user: User, activity_type: str, details: str = None):
     """یک فعالیت کاربر را ثبت کرده و آمار دانلود را در ستون JSON به‌روز می‌کند."""
-    log = ActivityLog(user_id=user_id, activity_type=activity_type, details=details)
+    log = ActivityLog(user_id=user.user_id, activity_type=activity_type, details=details)
     db.add(log)
     
     if activity_type == 'download' and details:
-        user = await find_user_by_id(db, user_id)
         if user:
             stats = json.loads(user.download_stats or '{}')
             service = details.split(':')[0]
@@ -126,6 +118,14 @@ async def log_activity(db: AsyncSession, user_id: int, activity_type: str, detai
             user.download_stats = json.dumps(stats)
     
     await db.commit()
+
+async def get_user_last_activity(db: AsyncSession, user_id: int) -> datetime.datetime | None:
+    """آخرین زمان فعالیت ثبت شده برای یک کاربر را برمی‌گرداند."""
+    result = await db.execute(
+        select(func.max(ActivityLog.timestamp))
+        .filter(ActivityLog.user_id == user_id)
+    )
+    return result.scalar_one_or_none()
 
 # =================================================================
 # توابع مدیریتی (Admin Panel)

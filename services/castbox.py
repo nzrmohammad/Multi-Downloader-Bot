@@ -1,4 +1,4 @@
-# services/castbox.py
+# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/services/castbox.py
 
 import re
 import json
@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 from bs4 import BeautifulSoup
 
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.user_manager import can_download
 from core.log_forwarder import forward_download_to_log_channel
 
 logger = logging.getLogger(__name__)
@@ -87,8 +87,7 @@ class CastboxService(BaseService):
         return re.match(CASTBOX_FULL_URL_PATTERN, url) is not None or \
                re.match(CASTBOX_SHORT_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return

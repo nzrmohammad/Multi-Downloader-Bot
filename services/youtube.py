@@ -15,14 +15,13 @@ class YoutubeService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(YOUTUBE_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
-        if not can_download(user):
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str): # <--- ورودی user اضافه شد
+        if not can_download(user): # <--- چک کردن مستقیم user
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return
 
         is_playlist = 'playlist' in url
-        if is_playlist and user.subscription_tier not in ['gold', 'platinum', 'diamond']:
+        if is_playlist and user.subscription_tier not in ['gold', 'diamond']: # <--- استفاده مستقیم از user.subscription_tier
             await update.message.reply_text("برای دانلود پلی‌لیست، به اشتراک طلایی یا الماسی نیاز دارید.")
             return
 

@@ -1,14 +1,15 @@
-# services/spotify.py
+# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/services/spotify.py
 
 import re
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from core.settings import settings # <--- استفاده از کلاس تنظیمات
+from core.settings import settings
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
+from database.database import AsyncSessionLocal
 
 SPOTIFY_URL_PATTERN = re.compile(r"https://open\.spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)")
 
@@ -28,10 +29,11 @@ class SpotifyService(BaseService):
         return re.match(SPOTIFY_URL_PATTERN, url) is not None
 
     async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
-        if not can_download(user):
-            await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
-            return
+        async with AsyncSessionLocal() as session:
+            user = await get_or_create_user(session, update)
+            if not can_download(user):
+                await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
+                return
 
         match = re.match(SPOTIFY_URL_PATTERN, url)
         link_type, item_id = match.groups()
@@ -54,18 +56,29 @@ class SpotifyService(BaseService):
                     chat_id=update.effective_chat.id, photo=album_info['images'][0]['url'],
                     caption=caption, reply_markup=reply_markup, parse_mode='Markdown'
                 )
+            elif link_type == 'playlist':
+                if user.subscription_tier not in ['gold', 'diamond']:
+                     await processing_message.edit_text("برای دانلود پلی‌لیست اسپاتیفای، به اشتراک طلایی یا الماسی نیاز دارید.")
+                     return
+                playlist_info = self.sp.playlist(item_id)
+                caption, reply_markup = self.build_playlist_panel(playlist_info)
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id, photo=playlist_info['images'][0]['url'],
+                    caption=caption, reply_markup=reply_markup, parse_mode='Markdown'
+                )
+
             await processing_message.delete()
         except Exception as e:
-            await processing_message.edit_text(f"مشکلی در پردازش لینک اسپاتیفay پیش آمد: {e}")
+            await processing_message.edit_text(f"مشکلی در پردازش لینک اسپاتیفای پیش آمد: {e}")
 
     def build_track_panel(self, track_info: dict):
+        # ... (این متد بدون تغییر باقی می‌ماند)
         track_id = track_info['id']
         title = track_info['name']
         artists = ', '.join([artist['name'] for artist in track_info['artists']])
         album_name = track_info['album']['name']
         release_date = track_info['album']['release_date']
         isrc = track_info.get('external_ids', {}).get('isrc', 'N/A')
-        album_art_url = track_info['album']['images'][0]['url']
         artist_id = track_info['artists'][0]['id']
         album_id = track_info['album']['id']
         youtube_search_query = f"{artists} - {title} official audio".replace(' ', '+')
@@ -92,6 +105,7 @@ class SpotifyService(BaseService):
         return caption, InlineKeyboardMarkup(keyboard)
 
     def build_album_panel(self, album_info: dict):
+        # ... (این متد بدون تغییر باقی می‌ماند)
         album_id = album_info.get('id')
         album_name = album_info.get('name', 'N/A')
         artists = ', '.join([artist.get('name', 'N/A') for artist in album_info.get('artists', [])])
@@ -113,5 +127,24 @@ class SpotifyService(BaseService):
             InlineKeyboardButton("🎵 اسپاتیفای", url=album_info.get('external_urls', {}).get('spotify', '')),
             InlineKeyboardButton("❌ بستن", callback_data="s:c")
         ])
+        
+        return caption, InlineKeyboardMarkup(keyboard)
+        
+    def build_playlist_panel(self, playlist_info: dict):
+        """منوی مربوط به پلی‌لیست اسپاتیفای را ایجاد می‌کند."""
+        playlist_id = playlist_info.get('id')
+        playlist_name = playlist_info.get('name', 'N/A')
+        owner = playlist_info.get('owner', {}).get('display_name', 'N/A')
+        total_tracks = playlist_info.get('tracks', {}).get('total', 'N/A')
+        
+        caption = (f"🎶 **Playlist:** `{playlist_name}`\n"
+                   f"👤 **Owner:** `{owner}`\n"
+                   f"🔢 **Total tracks:** `{total_tracks}`\n\n"
+                   "برای دانلود پلی‌لیست به صورت فایل ZIP روی دکمه زیر کلیک کنید.")
+                   
+        keyboard = [
+            [InlineKeyboardButton("📦 دانلود همه (ZIP صوتی)", callback_data=f"spotify:playlist_zip:{playlist_id}")],
+            [InlineKeyboardButton("❌ بستن", callback_data="s:c")]
+        ]
         
         return caption, InlineKeyboardMarkup(keyboard)

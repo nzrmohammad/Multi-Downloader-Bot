@@ -1,11 +1,11 @@
-# services/instagram.py
+# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/services/instagram.py
 
 import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.user_manager import can_download
 
 INSTAGRAM_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?instagram\.com/(p|reel|tv)/([a-zA-Z0-9_-]+)")
 
@@ -13,8 +13,7 @@ class InstagramService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(INSTAGRAM_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return
