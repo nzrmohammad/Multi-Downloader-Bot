@@ -1,11 +1,10 @@
-# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/services/instagram.py
-
+# services/instagram.py
 import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
-from core.user_manager import can_download
+from core.user_manager import can_download, get_or_create_user
 
 INSTAGRAM_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?instagram\.com/(p|reel|tv)/([a-zA-Z0-9_-]+)")
 

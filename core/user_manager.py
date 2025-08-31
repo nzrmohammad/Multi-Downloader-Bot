@@ -1,3 +1,4 @@
+# core/user_manager.py
 import datetime
 import json
 from sqlalchemy import func, select
@@ -222,7 +223,7 @@ async def delete_promo_code(db: AsyncSession, code_id: int) -> bool:
         return True
     return False
 
-async def redeem_promo_code(db: AsyncSession, user_id: int, code: str) -> str:
+async def redeem_promo_code(db: AsyncSession, user: User, code: str) -> str:
     """یک کد تخفیf را برای کاربر اعمال می‌کند و نتیجه را به صورت متنی برمی‌گرداند."""
     promo_code_result = await db.execute(select(PromoCode).filter(PromoCode.code == code.upper(), PromoCode.is_active == True))
     promo_code = promo_code_result.scalars().first()
@@ -233,7 +234,8 @@ async def redeem_promo_code(db: AsyncSession, user_id: int, code: str) -> str:
     if promo_code.uses_count >= promo_code.max_uses:
         return "ظرفیت استفاده از این کد تخفیف به پایان رسیده است."
 
-    success = await set_user_plan(db, user_id, promo_code.tier, promo_code.duration_days)
+    # <<-- FIX: Pass the user object directly -->>
+    success = await set_user_plan(db, user, promo_code.tier, promo_code.duration_days)
 
     if success:
         promo_code.uses_count += 1

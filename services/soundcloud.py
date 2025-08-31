@@ -1,3 +1,4 @@
+# services/soundcloud.py
 import re
 import os
 import logging
@@ -62,7 +63,7 @@ class SoundCloudService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SOUNDCLOUD_URL_PATTERN, url) is not None
 
-async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         user = get_or_create_user(update)
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
@@ -76,7 +77,6 @@ async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url:
             await msg.edit_text("❌ خطا: امکان دریافت کلید دسترسی از ساندکلاد وجود ندارد.")
             return
 
-        # <<<<< شروع تغییرات اصلی >>>>>
         temp_filename = "" # Define temp_filename to be in scope for finally block
         try:
             clean_url = url.split('?')[0]
@@ -170,4 +170,3 @@ async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url:
         finally:
             if temp_filename and os.path.exists(temp_filename):
                 os.remove(temp_filename)
-        # <<<<< پایان تغییرات اصلی >>>>>

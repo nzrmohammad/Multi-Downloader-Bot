@@ -2,7 +2,8 @@
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from core.user_manager import get_or_create_user, get_download_stats, set_user_quality_setting
+from database.database import AsyncSessionLocal
+from core.user_manager import get_download_stats, set_user_quality_setting, User
 import config
 from .locales import get_text
 from .service_manager import get_all_statuses
@@ -23,16 +24,14 @@ def get_main_menu_keyboard(user_id, lang='en'):
         ],
         [InlineKeyboardButton(get_text('menu_about', lang), callback_data="about:main")],
     ]
-    # ✨ این شرط بررسی می‌کند که آیا کاربر ادمین است یا خیر و دکمه را اضافه می‌کند
-    if user_id == settings.ADMIN_ID: # <--- تغییر از config.ADMIN_ID
+    if user_id == settings.ADMIN_ID:
         keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin:main")])
     return InlineKeyboardMarkup(keyboard)
 
 # --- Handlers ---
 
-async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     query = update.callback_query
-    user = get_or_create_user(update)
     lang = user.language
     command = query.data.split(':')[1]
 
@@ -45,16 +44,15 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard = [[InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]]
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def handle_service_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_service_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     """وضعیت سرویس‌ها و دسترسی کاربر به آن‌ها را نمایش می‌دهد."""
     query = update.callback_query
-    user = get_or_create_user(update)
     lang = user.language
     
-    # لیستی از سرویس‌هایی که نیاز به اشتراک ویژه دارند
-    premium_services = ['pornhub', 'redtube', 'twitch'] # می‌توانید نام سرویس‌های دیگر را اضافه کنید
+    premium_services = ['pornhub', 'redtube', 'twitch']
 
-    statuses = get_all_statuses()
+    async with AsyncSessionLocal() as session:
+        statuses = await get_all_statuses(session)
     
     status_text = get_text('services_title', lang)
     if statuses:
@@ -62,7 +60,6 @@ async def handle_service_status_callback(update: Update, context: ContextTypes.D
             emoji = "✅" if s.is_enabled else "❌"
             access_emoji = ""
             
-            # بررسی اینکه آیا سرویس ویژه است و کاربر اشتراک ندارد
             if s.service_name.lower() in premium_services and user.subscription_tier == 'free':
                 access_emoji = "🔒"
             
@@ -80,11 +77,9 @@ async def handle_service_status_callback(update: Update, context: ContextTypes.D
         parse_mode='Markdown'
     )
 
-# core/handlers/menu_handler.py
 
-async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     query = update.callback_query
-    user = get_or_create_user(update)
     lang = user.language
 
     tier_limits = {
@@ -99,7 +94,7 @@ async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_
         remaining = limit - user.daily_downloads
         daily_usage_text = f"{user.daily_downloads} / {limit} (<b>{remaining}</b> باقی‌مانده)"
 
-    stats = get_download_stats(user.user_id)
+    stats = get_download_stats(user)
     stats_text = ""
     if stats:
         sorted_stats = sorted(stats.items(), key=lambda item: item[1], reverse=True)
@@ -117,7 +112,6 @@ async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_
     )
 
     keyboard = [
-        #      ↓↓↓ دکمه جدید در این قسمت اضافه شد ↓↓↓
         [InlineKeyboardButton("🎁 ثبت کد تخفیف", callback_data="promo:start_redeem")],
         [InlineKeyboardButton("💎 مشاهده و ارتقاء پلن‌ها", callback_data="plans:show")],
         [InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]
@@ -126,10 +120,9 @@ async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(text=account_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
     
 
-async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     """منوی تنظیمات را مدیریت می‌کند."""
     query = update.callback_query
-    user = get_or_create_user(update)
     lang = user.language
     command = query.data.split(':')[1]
 
@@ -169,16 +162,21 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
     elif command == 'set':
         platform = query.data.split(':')[2]
         quality = query.data.split(':')[3]
-        set_user_quality_setting(user.user_id, platform, quality)
+        async with AsyncSessionLocal() as session:
+            await set_user_quality_setting(session, user, platform, quality)
         
         await query.answer(f"کیفیت پیش‌فرض برای {platform.upper()} به {quality} تغییر کرد.")
-        query.data = "settings:main" 
-        await handle_settings_callback(update, context)
+        
+        # Refresh the user object to show updated settings
+        user_id = update.effective_user.id
+        async with AsyncSessionLocal() as session:
+            refreshed_user = await session.get(User, user_id)
+        
+        await handle_settings_callback(update, context, refreshed_user)
 
 
-async def handle_about_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_about_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     query = update.callback_query
-    user = get_or_create_user(update)
     lang = user.language
     
     about_text = (
