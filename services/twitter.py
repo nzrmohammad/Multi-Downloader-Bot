@@ -1,10 +1,12 @@
+# services/twitter.py
 import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import yt_dlp
+
+import config  # <--- وارد کردن کانفیگ برای دسترسی به پراکسی
 from services.base_service import BaseService
-import config
 
 TWITTER_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?(twitter|x)\.com/([a-zA-Z0-9_]+)/status/(\d+)")
 
@@ -15,10 +17,9 @@ class TwitterService(BaseService):
     async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         msg = await update.message.reply_text("در حال پردازش لینک توییتر...")
         try:
-            # --- ✨ FIX ✨: اضافه کردن کوکی برای دور زدن محدودیت NSFW ---
             ydl_opts = {
                 'quiet': True,
-                'cookiefile': None # برای اطمینان از عدم استفاده از فایل کوکی
+                'proxy': config.get_random_proxy(), # <--- استفاده از سیستم پراکسی خودکار
             }
             # اگر توکن در فایل .env تعریف شده بود، آن را به هدر اضافه کن
             if config.TWITTER_AUTH_TOKEN:
@@ -59,4 +60,4 @@ class TwitterService(BaseService):
                 )
         except Exception as e:
             logging.error(f"Twitter service error: {e}")
-            await msg.edit_text("❌ خطایی در پردازش لینک توییتر رخ داد. ممکن است توییت حاوی ویدیو نباشد یا کوکی `TWITTER_AUTH_TOKEN` شما نامعتبر باشد.")
+            await msg.edit_text("❌ خطایی در پردازش لینک توییتر رخ داد. ممکن است توییت حاوی ویدیو نباشد یا نیاز به لاگین داشته باشد.")

@@ -71,3 +71,4 @@ def setup_scheduler(application: Application):
     scheduler.add_job(send_daily_report, 'cron', hour=23, minute=59, args=[application])
     scheduler.start()
     logger.info("زمان‌بند (Scheduler) با موفقیت برای ساعت ۲۳:۵۹ تنظیم شد.")
+    return scheduler # <--- این خط را اضافه کنید

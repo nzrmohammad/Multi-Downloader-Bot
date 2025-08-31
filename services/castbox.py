@@ -1,7 +1,10 @@
+# services/castbox.py
+
 import re
 import json
 import logging
 import time
+import os
 from urllib.parse import unquote
 import requests
 from telegram import Update
@@ -108,39 +111,39 @@ class CastboxService(BaseService):
 
         audio_url = episode_info['audio_url']
         await msg.edit_text("لینک مستقیم پیدا شد! **در حال دانلود از سرور...**")
-
+        
+        temp_filename = f"downloads/castbox_{episode_id}.mp3"
+        os.makedirs('downloads', exist_ok=True)
+        
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-            audio_response = requests.get(audio_url, headers=headers, stream=True, timeout=60)
-            audio_response.raise_for_status()
-            
-            total_size = int(audio_response.headers.get('content-length', 0))
-            downloaded_size = 0
-            audio_content = bytearray()
-            last_update_time = time.time()
-
-            for chunk in audio_response.iter_content(chunk_size=1024 * 512): # 512KB chunks
-                audio_content.extend(chunk)
-                downloaded_size += len(chunk)
+            with requests.get(audio_url, headers=headers, stream=True, timeout=300) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                downloaded_size = 0
+                last_update_time = time.time()
                 
-                current_time = time.time()
-                if current_time - last_update_time > 2:
-                    if total_size > 0:
-                        progress = downloaded_size / total_size
-                        progress_bar = self._create_progress_bar(progress)
-                        downloaded_mb = downloaded_size / 1024 / 1024
-                        total_mb = total_size / 1024 / 1024
+                with open(temp_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024 * 512): # 512KB chunks
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
                         
-                        text = (
-                            f"**در حال دانلود فایل از سرور...**\n\n"
-                            f"{progress_bar} {progress:.0%}\n\n"
-                            f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`"
-                        )
-                        try:
-                            await msg.edit_text(text, parse_mode='Markdown')
-                        except Exception:
-                            pass # Ignore if message not modified
-                        last_update_time = current_time
+                        current_time = time.time()
+                        if current_time - last_update_time > 2 and total_size > 0:
+                            progress = downloaded_size / total_size
+                            progress_bar = self._create_progress_bar(progress)
+                            downloaded_mb = downloaded_size / 1024 / 1024
+                            total_mb = total_size / 1024 / 1024
+                            text = (
+                                f"**در حال دانلود فایل از سرور...**\n\n"
+                                f"{progress_bar} {progress:.0%}\n\n"
+                                f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`"
+                            )
+                            try:
+                                await msg.edit_text(text, parse_mode='Markdown')
+                            except Exception:
+                                pass # Ignore if message not modified
+                            last_update_time = current_time
             
             await msg.edit_text("دانلود کامل شد. **در حال آپلود برای شما...** 🚀")
             
@@ -148,7 +151,7 @@ class CastboxService(BaseService):
             artist = episode_info.get('artist', 'پادکست')
             duration_ms = episode_info.get('duration', 0)
             duration_str = time.strftime('%M:%S', time.gmtime(duration_ms / 1000))
-            file_size_mb = len(audio_content) / 1024 / 1024
+            file_size_mb = os.path.getsize(temp_filename) / 1024 / 1024
             
             caption = (
                 f"🎧 **{title}**\n"
@@ -158,21 +161,24 @@ class CastboxService(BaseService):
                 f"▪️ **مدت زمان:** `{duration_str}`"
             )
 
-            sent_message = await context.bot.send_audio(
-                chat_id=update.effective_chat.id,
-                audio=bytes(audio_content),
-                caption=caption,
-                title=title,
-                performer=artist,
-                duration=int(duration_ms / 1000),
-                filename=f"{title}.mp3",
-                parse_mode='Markdown'
-            )
-            await forward_download_to_log_channel(
-                context, user, sent_message, "castbox", url
-            )
+            with open(temp_filename, 'rb') as audio_file:
+                sent_message = await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=audio_file,
+                    caption=caption,
+                    title=title,
+                    performer=artist,
+                    duration=int(duration_ms / 1000),
+                    filename=f"{title}.mp3",
+                    parse_mode='Markdown'
+                )
+
+            await forward_download_to_log_channel(context, user, sent_message, "castbox", url)
             await msg.delete()
 
         except Exception as e:
             logger.error(f"Failed to download or send audio file: {e}", exc_info=True)
             await msg.edit_text("❌ در هنگام دانلود یا ارسال فایل صوتی مشکلی پیش آمد.")
+        finally:
+            if os.path.exists(temp_filename):
+                os.remove(temp_filename)

@@ -1,5 +1,5 @@
 import re
-import json
+import os
 import logging
 import time
 import requests
@@ -62,7 +62,7 @@ class SoundCloudService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SOUNDCLOUD_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         user = get_or_create_user(update)
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
@@ -76,12 +76,18 @@ class SoundCloudService(BaseService):
             await msg.edit_text("❌ خطا: امکان دریافت کلید دسترسی از ساندکلاد وجود ندارد.")
             return
 
+        # <<<<< شروع تغییرات اصلی >>>>>
+        temp_filename = "" # Define temp_filename to be in scope for finally block
         try:
             clean_url = url.split('?')[0]
             resolve_url = f"https://api-v2.soundcloud.com/resolve?url={clean_url}&client_id={client_id}"
             meta_res = requests.get(resolve_url, headers=headers, timeout=10)
             meta_res.raise_for_status()
             track_data = meta_res.json()
+
+            track_id = track_data.get('id')
+            temp_filename = f"downloads/soundcloud_{track_id}.mp3"
+            os.makedirs('downloads', exist_ok=True)
 
             title = track_data.get('title', 'Unknown Title')
             artist = track_data.get('user', {}).get('username', 'Unknown Artist')
@@ -107,37 +113,34 @@ class SoundCloudService(BaseService):
 
             await msg.edit_text("لینک مستقیم پیدا شد! **در حال دانلود از سرور...**")
 
-            audio_response = requests.get(audio_url, stream=True, timeout=60)
-            audio_response.raise_for_status()
-            
-            total_size = int(audio_response.headers.get('content-length', 0))
-            audio_content = bytearray()
-
-            downloaded_size = 0
-            last_update_time = time.time()
-            for chunk in audio_response.iter_content(chunk_size=1024 * 512):
-                audio_content.extend(chunk)
-                downloaded_size += len(chunk)
-                current_time = time.time()
-                if current_time - last_update_time > 2:
-                    if total_size > 0:
-                        progress = downloaded_size / total_size
-                        progress_bar = self._create_progress_bar(progress)
-                        downloaded_mb = downloaded_size / 1024 / 1024
-                        total_mb = total_size / 1024 / 1024
-                        text = (f"**در حال دانلود از سرور...**\n\n"
-                                f"{progress_bar} {progress:.0%}\n\n"
-                                f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`")
-                        try:
-                            await msg.edit_text(text, parse_mode='Markdown')
-                        except Exception:
-                            pass
-                        last_update_time = current_time
+            with requests.get(audio_url, stream=True, timeout=300) as r:
+                r.raise_for_status()
+                total_size = int(r.headers.get('content-length', 0))
+                downloaded_size = 0
+                last_update_time = time.time()
+                
+                with open(temp_filename, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024 * 512):
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        current_time = time.time()
+                        if current_time - last_update_time > 2 and total_size > 0:
+                            progress = downloaded_size / total_size
+                            progress_bar = self._create_progress_bar(progress)
+                            downloaded_mb = downloaded_size / 1024 / 1024
+                            total_mb = total_size / 1024 / 1024
+                            text = (f"**در حال دانلود از سرور...**\n\n"
+                                    f"{progress_bar} {progress:.0%}\n\n"
+                                    f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`")
+                            try:
+                                await msg.edit_text(text, parse_mode='Markdown')
+                            except Exception:
+                                pass
+                            last_update_time = current_time
             
             await msg.edit_text("دانلود کامل شد. **در حال آپلود برای شما...** 🚀")
 
-            # --- قالب جدید کپشن ---
-            file_size_mb = len(audio_content) / 1024 / 1024
+            file_size_mb = os.path.getsize(temp_filename) / 1024 / 1024
             caption = (
                 f"🎧 **{title}**\n"
                 f"👤 **{artist}**\n\n"
@@ -146,21 +149,25 @@ class SoundCloudService(BaseService):
                 f"▪️ **مدت زمان:** `{duration_str}`"
             )
 
-            sent_message = await context.bot.send_audio(
-                chat_id=update.effective_chat.id,
-                audio=bytes(audio_content),
-                caption=caption, # <-- استفاده از کپشن جدید
-                title=title,
-                performer=artist,
-                duration=int(duration_ms / 1000),
-                filename=f"{title}.mp3",
-                parse_mode='Markdown'
-            )
-            await forward_download_to_log_channel(
-                context, user, sent_message, "soundcloud", url
-            )
+            with open(temp_filename, 'rb') as audio_file:
+                sent_message = await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=audio_file,
+                    caption=caption,
+                    title=title,
+                    performer=artist,
+                    duration=int(duration_ms / 1000),
+                    filename=f"{title}.mp3",
+                    parse_mode='Markdown'
+                )
+
+            await forward_download_to_log_channel(context, user, sent_message, "soundcloud", url)
             await msg.delete()
 
         except Exception as e:
             logger.error(f"Failed during SoundCloud API process: {e}", exc_info=True)
             await msg.edit_text("❌ در هنگام پردازش لینک ساندکلاد مشکلی پیش آمد.")
+        finally:
+            if temp_filename and os.path.exists(temp_filename):
+                os.remove(temp_filename)
+        # <<<<< پایان تغییرات اصلی >>>>>

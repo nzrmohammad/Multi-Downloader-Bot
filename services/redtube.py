@@ -4,6 +4,8 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import yt_dlp
+
+import config  # <--- وارد کردن کانفیگ برای دسترسی به پراکسی
 from services.base_service import BaseService
 
 REDTUBE_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?redtube\.com/(\d+)")
@@ -15,15 +17,19 @@ class RedTubeService(BaseService):
     async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         msg = await update.message.reply_text("در حال پردازش لینک RedTube... 🧐")
         try:
-            # ✨ اصلاحیه نهایی: افزودن legacy_server_connect برای حل مشکل SSL
             ydl_opts = {
                 'quiet': True,
                 'noplaylist': True,
                 'nocheckcertificate': True,
-                'legacy_server_connect': True, # این گزینه از پروتکل‌های سازگارتر استفاده می‌کند
+                'legacy_server_connect': True,
+                'proxy': config.get_random_proxy(),  # <--- استفاده از سیستم پراکسی خودکار
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+            
+            if not info:
+                await msg.edit_text("❌ اطلاعات ویدیو دریافت نشد. ممکن است لینک نامعتبر باشد یا پراکسی‌های ربات مسدود شده باشند.")
+                return
 
             video_id = info.get('id')
             title = info.get('title', 'Unknown Title')

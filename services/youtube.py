@@ -1,10 +1,11 @@
 # services/youtube.py
 import re
-import logging  # <--- حل خطای logger
+import logging
 import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
+import config  # <--- وارد کردن کانفیگ برای دسترسی به پراکسی
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 
@@ -25,18 +26,32 @@ class YoutubeService(BaseService):
 
         is_playlist = 'playlist' in url
         
-        if is_playlist and user.subscription_tier not in ['gold', 'platinum', 'diamond']: # diamond هم اضافه شد
+        if is_playlist and user.subscription_tier not in ['gold', 'platinum', 'diamond']:
             await update.message.reply_text("برای دانلود پلی‌لیست، به اشتراک طلایی یا الماسی نیاز دارید.")
             return
 
-        msg = await update.message.reply_text("در حال استخراج اطلاعات... لطفاً صبر کنید. 🧐")
+        msg = await update.message.reply_text("در حال استخراج اطلاعات از یوتیوب... 🧐")
         
         try:
-            ydl_opts = {'quiet': True, 'extract_flat': is_playlist, 'noplaylist': not is_playlist, 'ignoreerrors': True}
+            ydl_opts = {
+                'quiet': True,
+                'extract_flat': is_playlist,
+                'noplaylist': not is_playlist,
+                'ignoreerrors': True,
+                'proxy': config.get_random_proxy(),  # <--- استفاده از سیستم پراکسی خودکار
+            }
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
-            if 'entries' in info and info['entries']:  # Playlist
+            if not info:
+                await msg.edit_text(
+                    "❌ خطایی در دریافت اطلاعات از یوتیوب رخ داد.\n"
+                    "این مشکل معمولاً به دلیل محدودیت‌های یوتیوب روی IP سرور است. لطفاً چند دقیقه دیگر دوباره تلاش کنید."
+                )
+                return
+
+            if 'entries' in info and info.get('entries'):  # Playlist
                 playlist_title = info.get('title', 'Playlist')
                 num_entries = info.get('playlist_count', len(info['entries']))
                 
@@ -47,7 +62,6 @@ class YoutubeService(BaseService):
                 playlist_id = info.get('id')
                 keyboard = [
                     [InlineKeyboardButton("📦 دانلود همه (ZIP صوتی)", callback_data=f"yt:playlist_zip:{playlist_id}")],
-                    # [InlineKeyboardButton("📜 نمایش ۱۰ ویدیوی اول", callback_data=f"yt:show_playlist_items:{playlist_id}:0")] # این دکمه را می‌توانید غیرفعال کنید
                 ]
                 await msg.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -66,7 +80,6 @@ class YoutubeService(BaseService):
                 )
 
                 keyboard = []
-                # استفاده از فرمت جدید callback_data برای سازگاری با download_handler
                 keyboard.append([InlineKeyboardButton("🎵 بهترین کیفیت صدا (MP3)", callback_data=f"dl:prepare:youtube:audio:{video_id}")])
 
                 video_formats = [f for f in info.get('formats', []) if f.get('ext') == 'mp4' and f.get('vcodec') != 'none']

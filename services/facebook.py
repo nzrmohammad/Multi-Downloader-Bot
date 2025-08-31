@@ -4,6 +4,8 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 import yt_dlp
+
+import config
 from services.base_service import BaseService
 
 FACEBOOK_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.|m\.|web\.)?facebook\.com/(?:watch/?\?v=|video\.php\?v=|.+/videos/)(\d+)")
@@ -15,9 +17,17 @@ class FacebookService(BaseService):
     async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
         msg = await update.message.reply_text("در حال پردازش لینک فیسبوک...")
         try:
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            ydl_opts = {
+                'quiet': True,
+                'proxy': config.get_random_proxy(),
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
             
+            if not info:
+                await msg.edit_text("❌ اطلاعات ویدیو دریافت نشد.")
+                return
+
             video_id = info.get('id')
             title = info.get('title', 'Facebook Video')
             uploader = info.get('uploader', 'N/A')
@@ -29,7 +39,6 @@ class FacebookService(BaseService):
                 f"**ارسال کننده:** `{uploader}`"
             )
             
-            # فرمت جدید: dl:prepare:service_name:quality_info:resource_id
             keyboard = [[InlineKeyboardButton("🎬 دانلود ویدیو (کیفیت HD)", callback_data=f"dl:prepare:facebook:video_hd:{video_id}")]]
             
             await msg.delete()
