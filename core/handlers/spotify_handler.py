@@ -8,17 +8,21 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
-import config
+from core.settings import settings # <--- وارد کردن از کلاس تنظیمات
 from services.spotify import SpotifyService 
 
 # --- راه‌اندازی API ها ---
-auth_manager = SpotifyClientCredentials(client_id=config.SPOTIPY_CLIENT_ID, client_secret=config.SPOTIPY_CLIENT_SECRET)
+auth_manager = SpotifyClientCredentials(
+    client_id=settings.SPOTIPY_CLIENT_ID, 
+    client_secret=settings.SPOTIPY_CLIENT_SECRET
+)
 sp = spotipy.Spotify(
     auth_manager=auth_manager,
     requests_timeout=15,
     retries=3
 )
-mxm_api = MusixMatchAPI()
+# MusixMatchAPI در اینجا باقی می‌ماند
+mxm_api = MusixMatchAPI() 
 
 
 async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,18 +36,12 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
     original_track_id_or_album_id = parts[3] if len(parts) > 3 else None
 
     try:
-        if command == 'd':
-            from .download_handler import handle_download_callback as general_download_handler
-            await general_download_handler(update, context)
-
-        elif command == 'ly':
+        if command == 'ly':
             track_info = sp.track(item_id)
             song_title = track_info['name']
             artist_name = track_info['artists'][0]['name']
 
-            # --- FIX: Define keyboard early to prevent scope errors ---
             keyboard = [[InlineKeyboardButton("⬅️ بازگشت", callback_data=f"s:rs:{item_id}")]]
-
             await query.edit_message_caption(caption=f"در حال جستجوی متن آهنگ '{song_title}'...")
 
             lyrics = None
@@ -62,12 +60,12 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
                 lyrics = None
 
             if lyrics:
-                await query.message.delete()
                 full_lyrics_message = f"📜 **متن آهنگ {song_title}**:\n\n{lyrics}"
-                
                 if len(full_lyrics_message) > 4096:
                     full_lyrics_message = full_lyrics_message[:4090] + "\n[...]"
                 
+                # به جای ویرایش، پیام قبلی را حذف و پیام جدید ارسال می‌کنیم
+                await query.message.delete()
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=full_lyrics_message,
@@ -95,14 +93,16 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             caption = f"💿 **{album_info['name']}** - آهنگ‌ها ({offset+1} - {offset+len(tracks_result['items'])}):"
             keyboard = []
             for track in tracks_result['items']:
-                keyboard.append([InlineKeyboardButton(f"🎧 {track['name']}", callback_data=f"s:d:{track['id']}")])
+                # برای دانلود آهنگ‌های آلبوم، از callback دانلود عمومی استفاده می‌کنیم
+                keyboard.append([InlineKeyboardButton(f"🎧 {track['name']}", callback_data=f"dl:prepare:spotify:audio:{track['id']}")])
+
             nav_buttons = []
             if page > 1:
                 nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"s:vat:{album_id}:{page-1}"))
             if tracks_result['next']:
                 nav_buttons.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"s:vat:{album_id}:{page+1}"))
-            if nav_buttons:
-                keyboard.append(nav_buttons)
+            
+            if nav_buttons: keyboard.append(nav_buttons)
             keyboard.append([InlineKeyboardButton("⬅️ بازگشت به آلبوم", callback_data=f"s:reshow_album:{album_id}")])
             await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
@@ -111,11 +111,7 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             top_tracks = sp.artist_top_tracks(item_id)
             
             caption = f"🧑‍🎤 **هنرمند:** {artist_info['name']}\n\n**۵ آهنگ برتر:**\n"
-            for track in top_tracks['tracks'][:5]:
-                caption += f"- `{track['name']}`\n"
-
-            if len(caption) > 1024:
-                caption = caption[:1000] + "..."
+            caption += "\n".join([f"- `{track['name']}`" for track in top_tracks['tracks'][:5]])
 
             keyboard = [[InlineKeyboardButton("⬅️ بازگشت", callback_data=f"s:rs:{original_track_id_or_album_id}")]]
             await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
@@ -135,6 +131,7 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             spotify_service = SpotifyService()
             track_info = sp.track(item_id)
             caption, reply_markup = spotify_service.build_track_panel(track_info)
+            await query.message.delete()
             await context.bot.send_photo(
                 chat_id=query.message.chat_id,
                 photo=track_info['album']['images'][0]['url'],
@@ -142,13 +139,12 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
                 reply_markup=reply_markup,
                 parse_mode='Markdown'
             )
-            await query.message.delete()
 
     except BadRequest as e:
         if "message is not modified" not in str(e):
             logging.error(f"Telegram BadRequest in spotify_handler: {e}")
     except Exception as e:
-        logging.error(f"Error in spotify_handler: {e}")
+        logging.error(f"Error in spotify_handler: {e}", exc_info=True)
         try:
             await context.bot.send_message(chat_id=query.message.chat_id, text="❌ خطایی رخ داد. لطفا دوباره تلاش کنید.")
         except Exception as inner_e:

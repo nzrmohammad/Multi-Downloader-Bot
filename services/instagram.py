@@ -4,9 +4,6 @@ import re
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-import yt_dlp
-
-import config  # <--- وارد کردن کانفیگ برای دسترسی به پراکسی
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 
@@ -23,45 +20,35 @@ class InstagramService(BaseService):
             return
 
         msg = await update.message.reply_text("در حال استخراج اطلاعات از اینستاگرام...")
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'proxy': config.get_random_proxy(), # <--- استفاده از سیستم پراکسی خودکار
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            
-            if not info:
-                await msg.edit_text("❌ اطلاعات پست دریافت نشد. ممکن است پست خصوصی باشد یا پراکسی‌های ربات مسدود شده باشند.")
-                return
+        
+        info = await self._extract_info_ydl(url)
+        
+        if not info:
+            await msg.edit_text("❌ اطلاعات پست دریافت نشد. ممکن است پست خصوصی باشد یا لینک نامعتبر باشد.")
+            return
 
-            video_id = info.get('id')
-            caption_text = (
-                f"📸 **پست اینستاگرام**\n\n"
-                f"👤 **ارسال کننده:** `{info.get('uploader', 'N/A')}`\n\n"
-                "برای دانلود ویدیو روی دکمه زیر کلیک کنید."
+        video_id = info.get('id')
+        caption_text = (
+            f"📸 **پست اینستاگرام**\n\n"
+            f"👤 **ارسال کننده:** `{info.get('uploader', 'N/A')}`\n\n"
+            "برای دانلود ویدیو روی دکمه زیر کلیک کنید."
+        )
+        keyboard = [[InlineKeyboardButton("🎬 دانلود", callback_data=f"dl:prepare:instagram:video:{video_id}")]]
+        
+        await msg.delete()
+        thumbnail = info.get('thumbnail')
+        if thumbnail:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=thumbnail,
+                caption=caption_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
             )
-            # توجه: اینستاگرام ممکن است چندین ویدیو/عکس داشته باشد. این کد فقط اولین مورد را در نظر می‌گیرد.
-            keyboard = [[InlineKeyboardButton("🎬 دانلود", callback_data=f"dl:prepare:instagram:video:{video_id}")]]
-            
-            await msg.delete()
-            # ارسال با عکس پست به جای متن خالی
-            thumbnail = info.get('thumbnail')
-            if thumbnail:
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=thumbnail,
-                    caption=caption_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=caption_text,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            await msg.edit_text("❌ خطایی در پردازش لینک اینستاگرام رخ داد. ممکن است پست خصوصی باشد.")
-            logging.error(f"Instagram Error: {e}")
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=caption_text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )

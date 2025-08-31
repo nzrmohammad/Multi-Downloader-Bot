@@ -6,7 +6,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from telegram.ext import ContextTypes
 
-import config
+from core.settings import settings # <--- استفاده از کلاس تنظیمات
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 
@@ -14,7 +14,10 @@ SPOTIFY_URL_PATTERN = re.compile(r"https://open\.spotify\.com/(track|album|playl
 
 class SpotifyService(BaseService):
     def __init__(self):
-        auth_manager = SpotifyClientCredentials(client_id=config.SPOTIPY_CLIENT_ID, client_secret=config.SPOTIPY_CLIENT_SECRET)
+        auth_manager = SpotifyClientCredentials(
+            client_id=settings.SPOTIPY_CLIENT_ID,
+            client_secret=settings.SPOTIPY_CLIENT_SECRET
+        )
         self.sp = spotipy.Spotify(
             auth_manager=auth_manager,
             requests_timeout=15,
@@ -53,7 +56,7 @@ class SpotifyService(BaseService):
                 )
             await processing_message.delete()
         except Exception as e:
-            await processing_message.edit_text(f"مشکلی در پردازش لینک اسپاتیفای پیش آمد: {e}")
+            await processing_message.edit_text(f"مشکلی در پردازش لینک اسپاتیفay پیش آمد: {e}")
 
     def build_track_panel(self, track_info: dict):
         track_id = track_info['id']
@@ -72,20 +75,19 @@ class SpotifyService(BaseService):
             f"🎤 **Artist:** `{artists}`\n"
             f"💽 **Album:** `{album_name}`\n"
             f"🗓 **Release Date:** `{release_date}`\n"
-            f"❗️ **Is Local:** `False`\n"
-            f"🌐 **ISRC:** `{isrc}`\n\n"
-            f"Track id: `{track_id}`"
+            f"🌐 **ISRC:** `{isrc}`"
         )
 
         keyboard = [
-            [InlineKeyboardButton("📜 View Lyrics", callback_data=f"s:ly:{track_id}")],
-            [InlineKeyboardButton("⬇️ Download Track", callback_data=f"s:d:{track_id}")],
-            [InlineKeyboardButton("🖼 Download Image", url=album_art_url)],
-            [InlineKeyboardButton("📀 View Album", callback_data=f"s:va:{album_id}:{track_id}")],
-            [InlineKeyboardButton("🧑‍🎤 View Artist", callback_data=f"s:vr:{artist_id}:{track_id}")],
-            [InlineKeyboardButton("🎵 Listen on Spotify", url=track_info['external_urls']['spotify']),
-             InlineKeyboardButton("📺 Watch on YouTube", url=f"https://www.youtube.com/results?search_query={youtube_search_query}")],
-            [InlineKeyboardButton("❌ Close", callback_data="s:c")]
+            [InlineKeyboardButton("📜 مشاهده متن آهنگ", callback_data=f"s:ly:{track_id}")],
+            [InlineKeyboardButton("⬇️ دانلود آهنگ", callback_data=f"dl:prepare:spotify:audio:{track_id}")],
+            [InlineKeyboardButton("📀 مشاهده آلبوم", callback_data=f"s:va:{album_id}:{track_id}")],
+            [InlineKeyboardButton("🧑‍🎤 مشاهده هنرمند", callback_data=f"s:vr:{artist_id}:{track_id}")],
+            [
+                InlineKeyboardButton("🎵 اسپاتیفای", url=track_info['external_urls']['spotify']),
+                InlineKeyboardButton("📺 یوتیوب", url=f"https://www.youtube.com/results?search_query={youtube_search_query}")
+            ],
+            [InlineKeyboardButton("❌ بستن", callback_data="s:c")]
         ]
         return caption, InlineKeyboardMarkup(keyboard)
 
@@ -102,24 +104,14 @@ class SpotifyService(BaseService):
                    f"📅 **Published on:** `{release_date}`")
 
         keyboard = [
-            [InlineKeyboardButton("🖼 Download Album Image!", url=album_info.get('images', [{}])[0].get('url', ''))],
-            [InlineKeyboardButton("👀 View Album Track's!", callback_data=f"s:vat:{album_id}:1")],
+            [InlineKeyboardButton("👀 مشاهده آهنگ‌های آلبوم", callback_data=f"s:vat:{album_id}:1")],
         ]
-
-        # Safely add the "View Artist" button only if artist info is available
-        if album_info.get('artists'):
-            artist_id = album_info['artists'][0].get('id')
-            if artist_id:
-                keyboard.append([InlineKeyboardButton("🧑‍🎤 View Album Artist's!", callback_data=f"s:vr:{artist_id}:{album_id}")])
+        if album_info.get('artists') and (artist_id := album_info['artists'][0].get('id')):
+            keyboard.append([InlineKeyboardButton("🧑‍🎤 مشاهده هنرمند", callback_data=f"s:vr:{artist_id}:{album_id}")])
 
         keyboard.append([
-            InlineKeyboardButton("🎵 Listen On Spotify", url=album_info.get('external_urls', {}).get('spotify', '')),
-            InlineKeyboardButton("❌ Close", callback_data="s:c")
+            InlineKeyboardButton("🎵 اسپاتیفای", url=album_info.get('external_urls', {}).get('spotify', '')),
+            InlineKeyboardButton("❌ بستن", callback_data="s:c")
         ])
         
         return caption, InlineKeyboardMarkup(keyboard)
-
-    async def reshow_track_panel(self, track_id: str, message: Message):
-        track_info = self.sp.track(track_id)
-        caption, reply_markup = self.build_track_panel(track_info)
-        await message.edit_caption(caption=caption, reply_markup=reply_markup, parse_mode='Markdown')

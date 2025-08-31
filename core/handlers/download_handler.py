@@ -15,23 +15,23 @@ from telegram.error import BadRequest
 import zipfile
 import shutil
 
-import config  # <--- وارد کردن کانفیگ برای دسترسی به پراکسی
+import config
+from core.settings import settings
 from core.user_manager import get_or_create_user, can_download, increment_download_count, log_activity
 from .spotify_handler import sp
 from core.log_forwarder import forward_download_to_log_channel
+from yt_dlp.utils import DownloadError
 
 download_requests = {}
 logger = logging.getLogger(__name__)
 
 def _create_progress_bar(progress: float) -> str:
-    """یک نوار پیشرفت متنی گرافیکی ایجاد می‌کند."""
     bar_length = 10
     filled_length = int(bar_length * progress)
     bar = '▓' * filled_length + '░' * (bar_length - filled_length)
     return f"**[{bar}]**"
 
 def _add_id3_tags(filename: str, info: dict):
-    """تگ‌های متادیتا و کاور آرت را به فایل MP3 اضافه می‌کند."""
     try:
         audio = MP3(filename, ID3=ID3)
         if info.get('track'):
@@ -48,13 +48,7 @@ def _add_id3_tags(filename: str, info: dict):
                 response = requests.get(info['thumbnail'], timeout=15)
                 if response.status_code == 200:
                     audio.tags.add(
-                        APIC(
-                            encoding=3,
-                            mime='image/jpeg',
-                            type=3,  # 3 is for the front cover
-                            desc='Cover',
-                            data=response.content
-                        )
+                        APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=response.content)
                     )
             except Exception as e:
                 logging.warning(f"Could not download or add thumbnail: {e}")
@@ -64,7 +58,6 @@ def _add_id3_tags(filename: str, info: dict):
         logging.error(f"Failed to add ID3 tags to {filename}: {e}", exc_info=True)
 
 async def _edit_message_safe(query, text, is_photo, reply_markup=None):
-    """یک تابع کمکی برای ویرایش پیام که خطای 'message is not modified' را نادیده می‌گیرد."""
     try:
         if is_photo:
             await query.message.edit_caption(caption=text, reply_markup=reply_markup, parse_mode='Markdown')
@@ -75,15 +68,11 @@ async def _edit_message_safe(query, text, is_photo, reply_markup=None):
             logging.warning(f"Could not edit message: {e}")
 
 async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    تمام درخواست‌های دانلود از طریق دکمه‌ها را مدیریت می‌کند.
-    """
     query = update.callback_query
     await query.answer()
 
     user = get_or_create_user(update)
     parts = query.data.split(':')
-    
     command = parts[1]
 
     if command == 'prepare':
@@ -114,9 +103,6 @@ async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT
         await query.message.delete()
 
 async def start_actual_download(query, user, dl_info, context):
-    """
-    فرآیند اصلی دانلود را با نوار پیشرفت و افزودن تگ‌های ID3 مدیریت می‌کند.
-    """
     if not can_download(user):
         await _edit_message_safe(query, "شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕", query.message.photo)
         return
@@ -146,7 +132,7 @@ async def start_actual_download(query, user, dl_info, context):
     last_update_time = [0]
     loop = asyncio.get_running_loop()
 
-    def progress_hook(d, progress_loop):
+    async def progress_hook(d):
         current_time = time.time()
         if d['status'] == 'downloading' and current_time - last_update_time[0] > 2:
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
@@ -159,10 +145,7 @@ async def start_actual_download(query, user, dl_info, context):
                         f"{progress_bar} {progress:.0%}\n\n"
                         f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`")
                 
-                asyncio.run_coroutine_threadsafe(
-                    _edit_message_safe(query, text, query.message.photo),
-                    progress_loop
-                )
+                await _edit_message_safe(query, text, query.message.photo)
                 last_update_time[0] = current_time
 
     await _edit_message_safe(query, "✅ درخواست تایید شد. در حال اتصال به سرور...", query.message.photo)
@@ -170,7 +153,7 @@ async def start_actual_download(query, user, dl_info, context):
     ydl_opts_base = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'legacy_server_connect': True,
-        'progress_hooks': [lambda d: progress_hook(d, loop)],
+        'progress_hooks': [lambda d: asyncio.run_coroutine_threadsafe(progress_hook(d), loop)],
         'outtmpl': f'downloads/%(title)s_{uuid.uuid4()}.%(ext)s',
         'proxy': config.get_random_proxy(),
         'socket_timeout': 300,
@@ -196,7 +179,7 @@ async def start_actual_download(query, user, dl_info, context):
             original_filename = ydl.prepare_filename(info)
             if 'audio' in quality_info:
                 filename = os.path.splitext(original_filename)[0] + '.mp3'
-                if service == 'spotify': # فقط برای اسپاتیفای تگ‌ها را اضافه می‌کنیم
+                if service == 'spotify':
                     spotify_track_info = sp.track(resource_id)
                     tag_info = {
                         'track': spotify_track_info['name'],
@@ -212,14 +195,13 @@ async def start_actual_download(query, user, dl_info, context):
         await _edit_message_safe(query, "فایل شما دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
         
         final_caption = info.get('title', 'Downloaded File')
-        if 'audio' in quality_info:
-            with open(filename, 'rb') as file_to_send:
+        with open(filename, 'rb') as file_to_send:
+            if 'audio' in quality_info:
                 sent_message = await context.bot.send_audio(
                     chat_id=user.user_id, audio=file_to_send, filename=os.path.basename(filename),
                     caption=final_caption, title=info.get('track'), performer=info.get('artist')
                 )
-        else:
-            with open(filename, 'rb') as file_to_send:
+            else:
                 sent_message = await context.bot.send_video(
                     chat_id=user.user_id, video=file_to_send, filename=os.path.basename(filename),
                     caption=final_caption, supports_streaming=True
@@ -230,16 +212,19 @@ async def start_actual_download(query, user, dl_info, context):
         await forward_download_to_log_channel(context, user, sent_message, service, download_url)
         await query.message.delete()
 
+    except DownloadError as e:
+        logger.error(f"yt-dlp download error: {e}", exc_info=True)
+        error_message = "❌ دانلود ممکن نیست. محتوا ممکن است خصوصی، حذف شده یا برای منطقه شما در دسترس نباشد."
+        await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
     except Exception as e:
-        logging.error(f"Actual download error: {e}", exc_info=True)
-        error_message = f"❌ متاسفانه در هنگام دانلود مشکلی پیش آمد."
+        logger.error(f"Actual download error: {e}", exc_info=True)
+        error_message = "❌ یک خطای پیش‌بینی نشده در هنگام دانلود رخ داد."
         await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
     finally:
         if filename and os.path.exists(filename):
             os.remove(filename)
 
 async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """یک پلی‌لیست کامل را به صورت فایل ZIP صوتی دانلود و ارسال می‌کند."""
     query = update.callback_query
     await query.answer()
     
@@ -264,7 +249,7 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
             'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
             'quiet': True,
             'ignoreerrors': True,
-            'proxy': config.get_random_proxy(), # <--- استفاده از پراکسی برای پلی‌لیست
+            'proxy': config.get_random_proxy(),
         }
 
         loop = asyncio.get_running_loop()
@@ -281,12 +266,10 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
         downloaded_count = len([entry for entry in info.get('entries', []) if entry])
         await query.edit_message_text(f"دانلود {downloaded_count} فایل کامل شد. در حال فشرده‌سازی...")
 
-        def create_zip():
-            with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, _, files in os.walk(download_path):
-                    for file in files:
-                        zipf.write(os.path.join(root, file), arcname=file)
-        await loop.run_in_executor(None, create_zip)
+        await loop.run_in_executor(
+            None, lambda: shutil.make_archive(os.path.join('downloads', safe_playlist_title), 'zip', download_path)
+        )
+        zip_filepath += '.zip' # shutil adds .zip automatically
 
         await query.edit_message_text("فایل فشرده شد. در حال آپلود...")
 
@@ -301,7 +284,6 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
         await query.message.delete()
         increment_download_count(user.user_id)
         log_activity(user.user_id, 'download_playlist', details=f"youtube_zip:{playlist_id}")
-        await forward_download_to_log_channel(context, user, query.message, "youtube_zip", playlist_url)
 
     except Exception as e:
         logger.error(f"Error creating playlist zip for {playlist_id}: {e}", exc_info=True)

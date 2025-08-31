@@ -1,7 +1,8 @@
+# bot/application.py
 import logging
 from telegram.ext import Application, ApplicationBuilder
 from telegram.request import HTTPXRequest
-import config
+from core.settings import settings
 
 def create_application() -> Application:
     """اپلیکیشن ربات را با تنظیمات اولیه می‌سازد."""
@@ -10,7 +11,7 @@ def create_application() -> Application:
     
     application = (
         ApplicationBuilder()
-        .token(config.BOT_TOKEN)
+        .token(settings.BOT_TOKEN)
         .request(request)
         .build()
     )

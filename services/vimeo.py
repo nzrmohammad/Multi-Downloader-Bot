@@ -1,11 +1,7 @@
 # services/vimeo.py
 import re
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-import yt_dlp
-
-import config
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 
@@ -22,49 +18,33 @@ class VimeoService(BaseService):
             return
 
         msg = await update.message.reply_text("در حال استخراج اطلاعات از Vimeo...")
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'proxy': config.get_random_proxy(),
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            
-            if not info:
-                await msg.edit_text("❌ اطلاعات ویدیو دریافت نشد.")
-                return
+        info = await self._extract_info_ydl(url)
+        
+        if not info:
+            await msg.edit_text("❌ اطلاعات ویدیو دریافت نشد.")
+            return
 
-            video_id = info.get('id')
-            title = info.get('title', 'Vimeo Video')
-            uploader = info.get('uploader', 'N/A')
-            thumbnail = info.get('thumbnail')
+        video_id = info.get('id')
+        title = info.get('title', 'Vimeo Video')
+        uploader = info.get('uploader', 'N/A')
+        thumbnail = info.get('thumbnail')
 
-            caption = (
-                f"🎬 **{title}**\n"
-                f"👤 **Uploader:** `{uploader}`\n\n"
-                "کیفیت مورد نظر را انتخاب کنید:"
+        caption = (f"🎬 **{title}**\n"
+                   f"👤 **Uploader:** `{uploader}`\n\n"
+                   "کیفیت مورد نظر را انتخاب کنید:")
+        keyboard = [
+            [InlineKeyboardButton("🎵 دانلود صدا (MP3)", callback_data=f"dl:prepare:vimeo:audio:{video_id}")],
+            [InlineKeyboardButton("🎥 دانلود ویدیو (720p)", callback_data=f"dl:prepare:vimeo:video_720:{video_id}")],
+        ]
+        
+        await msg.delete()
+        if thumbnail:
+             await context.bot.send_photo(
+                chat_id=update.effective_chat.id, photo=thumbnail,
+                caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
             )
-            keyboard = [
-                [InlineKeyboardButton("🎵 دانلود صدا (MP3)", callback_data=f"dl:prepare:vimeo:audio:{video_id}")],
-                [InlineKeyboardButton("🎥 دانلود ویدیو (720p)", callback_data=f"dl:prepare:vimeo:video_720:{video_id}")],
-            ]
-            
-            await msg.delete()
-            if thumbnail:
-                 await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=thumbnail,
-                    caption=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-            else:
-                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            await msg.edit_text("❌ خطایی در پردازش لینک Vimeo رخ داد.")
-            logging.error(f"Vimeo Error: {e}")
+        else:
+             await context.bot.send_message(
+                chat_id=update.effective_chat.id, text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
+            )

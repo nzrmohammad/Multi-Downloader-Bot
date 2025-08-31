@@ -13,3 +13,4 @@ selenium
 beautifulsoup4
 lxml
 mutagen
+aiosqlite

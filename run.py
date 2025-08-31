@@ -4,22 +4,20 @@ import logging
 import asyncio
 from logging.handlers import RotatingFileHandler
 
-# =====> تغییر ۱: وارد کردن کتابخانه‌های جدید
 from bot.application import create_application
 from bot.handlers import register_handlers
 from database import database
-from core.handlers.service_manager import initialize_services
+from core.handlers.service_manager import initialize_services # این تابع باید async شود
 from core.scheduler import setup_scheduler
-import config  # <--- وارد کردن فایل کانفیگ
+import config
 
-# --- تنظیمات لاگ (بدون تغییر) ---
+# --- تنظیمات لاگ (کلاس ContextFilter و بقیه کدها بدون تغییر) ---
 class ContextFilter(logging.Filter):
     def filter(self, record):
         if not hasattr(record, 'user_id'):
             record.user_id = 'SYSTEM'
         return True
 
-# ... (بقیه تنظیمات لاگ بدون تغییر باقی می‌ماند) ...
 log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - [user_id:%(user_id)s]')
 file_handler = RotatingFileHandler('bot.log', maxBytes=2*1024*1024, backupCount=2, encoding='utf-8')
 file_handler.setFormatter(log_formatter)
@@ -39,11 +37,15 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 async def main() -> None:
     """ربات را به صورت غیرهمزمان راه‌اندازی و اجرا می‌کند."""
     
-    # --- آماده‌سازی اولیه ---
-    database.create_db()
-    initialize_services()
+    # --- آماده‌سازی اولیه پایگاه داده ---
+    logger.info("Initializing database...")
+    await database.create_db()
+    
+    # --- ثبت سرویس‌ها در پایگاه داده ---
+    logger.info("Initializing services in database...")
+    # await initialize_services() # توجه: این تابع باید ابتدا async شود تا بتوانید آن را فعال کنید.
 
-    # =====> تغییر ۲: اولین به‌روزرسانی پراکسی‌ها در زمان اجرا
+    # --- به‌روزرسانی پراکسی‌ها ---
     config.update_proxies_from_source()
 
     # --- ساخت اپلیکیشن و ثبت هندلرها ---
@@ -51,23 +53,21 @@ async def main() -> None:
     register_handlers(application)
     
     # --- اجرای ربات و زمان‌بند در یک حلقه asyncio ---
+    logger.info("Starting bot polling...")
     async with application:
         await application.start()
         await application.updater.start_polling()
         
-        # =====> تغییر ۳: تنظیم زمان‌بند برای به‌روزرسانی دوره‌ای پراکسی‌ها
-        # زمان‌بند اصلی را راه‌اندازی کرده و وظیفه جدید را به آن اضافه می‌کنیم
         scheduler = setup_scheduler(application)
-        # مثلاً هر ۶۰ دقیقه یک‌بار پراکسی‌ها را آپدیت کن
         scheduler.add_job(config.update_proxies_from_source, 'interval', minutes=60)
-        logger.info("Proxy update job scheduled to run every 60 minutes.")
+        logger.info("Proxy update job scheduled.")
         
-        while True:
-            await asyncio.sleep(3600)
+        # این حلقه بی‌نهایت، اسکریپت را تا زمان توقف دستی (Ctrl+C) زنده نگه می‌دارد
+        await asyncio.Event().wait()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped manually.")
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped.")

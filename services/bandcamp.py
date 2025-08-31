@@ -1,11 +1,7 @@
 # services/bandcamp.py
 import re
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-import yt_dlp
-
-import config
 from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 
@@ -22,46 +18,30 @@ class BandcampService(BaseService):
             return
 
         msg = await update.message.reply_text("در حال استخراج اطلاعات از Bandcamp...")
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'proxy': config.get_random_proxy(),
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            
-            if not info:
-                await msg.edit_text("❌ اطلاعات آهنگ دریافت نشد.")
-                return
-            
-            item_id = info.get('id')
-            title = info.get('track', info.get('title', 'Bandcamp Release'))
-            uploader = info.get('artist', 'N/A')
-            thumbnail = info.get('thumbnail')
+        info = await self._extract_info_ydl(url)
+        
+        if not info:
+            await msg.edit_text("❌ اطلاعات آهنگ دریافت نشد.")
+            return
+        
+        item_id = info.get('id')
+        title = info.get('track', info.get('title', 'Bandcamp Release'))
+        uploader = info.get('artist', 'N/A')
+        thumbnail = info.get('thumbnail')
 
-            caption = (
-                f"🎵 **{title}**\n"
-                f"👤 **Artist:** `{uploader}`\n\n"
-                "برای دانلود روی دکمه زیر کلیک کنید."
+        caption = (f"🎵 **{title}**\n"
+                   f"👤 **Artist:** `{uploader}`\n\n"
+                   "برای دانلود روی دکمه زیر کلیک کنید.")
+        keyboard = [[InlineKeyboardButton("🎧 دانلود", callback_data=f"dl:prepare:bandcamp:audio:{item_id}")]]
+        
+        await msg.delete()
+        if thumbnail:
+             await context.bot.send_photo(
+                chat_id=update.effective_chat.id, photo=thumbnail,
+                caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
             )
-            keyboard = [[InlineKeyboardButton("🎧 دانلود", callback_data=f"dl:prepare:bandcamp:audio:{item_id}")]]
-            
-            await msg.delete()
-            if thumbnail:
-                 await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=thumbnail,
-                    caption=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-            else:
-                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=caption,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode='Markdown'
-                )
-        except Exception as e:
-            await msg.edit_text("❌ خطایی در پردازش لینک Bandcamp رخ داد.")
-            logging.error(f"Bandcamp Error: {e}")
+        else:
+             await context.bot.send_message(
+                chat_id=update.effective_chat.id, text=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
+            )

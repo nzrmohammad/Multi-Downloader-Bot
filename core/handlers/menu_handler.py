@@ -6,6 +6,7 @@ from core.user_manager import get_or_create_user, get_download_stats, set_user_q
 import config
 from .locales import get_text
 from .service_manager import get_all_statuses
+from core.settings import settings
 
 # --- Keyboards ---
 
@@ -23,7 +24,7 @@ def get_main_menu_keyboard(user_id, lang='en'):
         [InlineKeyboardButton(get_text('menu_about', lang), callback_data="about:main")],
     ]
     # ✨ این شرط بررسی می‌کند که آیا کاربر ادمین است یا خیر و دکمه را اضافه می‌کند
-    if user_id == config.ADMIN_ID:
+    if user_id == settings.ADMIN_ID: # <--- تغییر از config.ADMIN_ID
         keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin:main")])
     return InlineKeyboardMarkup(keyboard)
 
