@@ -6,6 +6,7 @@ import yt_dlp
 from telegram import Update
 from telegram.ext import ContextTypes
 import config
+from yt_dlp.utils import DownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +44,10 @@ class BaseService:
             with yt_dlp.YoutubeDL(default_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
             return info
-        except yt_dlp.utils.DownloadError as e:
-            # این خطاها معمولا به دلیل مشکلات لینک (خصوصی بودن، حذف شدن) است
+        except DownloadError as e:
+            # این خطاها معمولا به دلیل مشکلات لینک (خصوصی، حذف شده) است
             logger.warning(f"yt-dlp DownloadError for URL {url}: {e}")
+            # در هر دو حالت خطا، None برمیگردانیم تا پیام یکسانی به کاربر نمایش داده شود
             return None
         except Exception as e:
             # خطاهای دیگر ممکن است مربوط به شبکه یا پراکسی باشند

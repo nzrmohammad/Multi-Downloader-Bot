@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.user_manager import can_download
 from core.log_forwarder import forward_download_to_log_channel
 
 logger = logging.getLogger(__name__)
@@ -63,8 +63,8 @@ class SoundCloudService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SOUNDCLOUD_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
+        # --- FIX: ADDED DOWNLOAD LIMIT CHECK ---
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return

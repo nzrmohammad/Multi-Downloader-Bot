@@ -5,7 +5,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.user_manager import can_download
 
 PORNHUB_URL_PATTERN = re.compile(
     r"(?:https?://)?(?:[a-zA-Z\d-]+\.)?pornhub\.com/(view_video\.php\?viewkey=|embed/)([a-zA-Z0-9]+)"
@@ -15,8 +15,8 @@ class PornhubService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(PORNHUB_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        user = get_or_create_user(update)
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
+        # --- FIX: ADDED DOWNLOAD LIMIT CHECK ---
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
             return
