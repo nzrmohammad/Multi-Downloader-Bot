@@ -1,0 +1,15 @@
+python-telegram-bot
+python-dotenv
+celery
+redis
+sqlalchemy
+yt-dlp
+spotipy
+requests
+musicxmatch-api
+deemix
+apscheduler
+selenium
+beautifulsoup4
+lxml
+mutagen
