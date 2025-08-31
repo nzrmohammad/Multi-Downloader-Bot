@@ -27,6 +27,7 @@ class Settings:
 
     # Proxy Configuration
     PROXY_SOURCE_URL: str | None
+    YOUTUBE_COOKIES_FILE: str | None
 
     def __init__(self):
         # --- اعتبارسنجی و بارگذاری متغیرهای ضروری ---
@@ -49,8 +50,11 @@ class Settings:
         log_channel_id = os.getenv("LOG_CHANNEL_ID")
         self.LOG_CHANNEL_ID = int(log_channel_id) if log_channel_id else None
         self.TWITTER_AUTH_TOKEN = os.getenv("TWITTER_AUTH_TOKEN")
-        self.PROXY_SOURCE_URL = os.getenv("PROXY_SOURCE_URL")
-
+        
+        # FIX: Changed the default proxy source to the new, better one.
+        # This can be overridden by setting PROXY_SOURCE_URL in the .env file.
+        self.PROXY_SOURCE_URL = os.getenv("PROXY_SOURCE_URL", "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/main/http.txt")
+        self.YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE")
 
 # یک نمونه (instance) از کلاس تنظیمات ساخته می‌شود تا در کل پروژه از آن استفاده شود.
 settings = Settings()

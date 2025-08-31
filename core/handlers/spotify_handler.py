@@ -2,30 +2,49 @@
 
 import logging
 import spotipy
+import requests
+from requests.adapters import HTTPAdapter, Retry
 from musicxmatch_api import MusixMatchAPI
 from spotipy.oauth2 import SpotifyClientCredentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
 
-from core.settings import settings # <--- وارد کردن از کلاس تنظیمات
+import config
+from core.settings import settings 
 from services.spotify import SpotifyService 
 
-# --- راه‌اندازی API ها ---
-auth_manager = SpotifyClientCredentials(
-    client_id=settings.SPOTIPY_CLIENT_ID, 
-    client_secret=settings.SPOTIPY_CLIENT_SECRET
-)
-sp = spotipy.Spotify(
-    auth_manager=auth_manager,
-    requests_timeout=15,
-    retries=3
-)
-# MusixMatchAPI در اینجا باقی می‌ماند
+def create_spotify_session() -> spotipy.Spotify:
+    """
+    یک نمونه Spotipy با یک session سفارشی ایجاد می‌کند که شامل چرخش پراکسی و تلاش مجدد است.
+    """
+    session = requests.Session()
+    
+    proxy = config.get_random_proxy()
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+
+    auth_manager = SpotifyClientCredentials(
+        client_id=settings.SPOTIPY_CLIENT_ID, 
+        client_secret=settings.SPOTIPY_CLIENT_SECRET
+        # FIX: The 'session' argument is removed from here as it's not a valid parameter.
+    )
+    
+    # FIX: The custom 'session' is correctly passed to the main Spotify client here.
+    return spotipy.Spotify(
+        auth_manager=auth_manager,
+        requests_timeout=15,
+        retries=3,
+        session=session
+    )
+
+sp = create_spotify_session()
 mxm_api = MusixMatchAPI() 
 
-
-async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     """تمام درخواست‌های مربوط به اسپاتیفای را مدیریت می‌کند."""
     query = update.callback_query
     await query.answer()
@@ -33,7 +52,7 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
     parts = query.data.split(':')
     command = parts[1]
     item_id = parts[2] if len(parts) > 2 else None
-    original_track_id_or_album_id = parts[3] if len(parts) > 3 else None
+    original_item_id = parts[3] if len(parts) > 3 else None
 
     try:
         if command == 'ly':
@@ -64,7 +83,6 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
                 if len(full_lyrics_message) > 4096:
                     full_lyrics_message = full_lyrics_message[:4090] + "\n[...]"
                 
-                # به جای ویرایش، پیام قبلی را حذف و پیام جدید ارسال می‌کنیم
                 await query.message.delete()
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
@@ -86,14 +104,13 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
 
         elif command == 'vat':
             album_id = item_id
-            page = int(original_track_id_or_album_id)
+            page = int(original_item_id)
             album_info = sp.album(album_id)
             offset = (page - 1) * 10
             tracks_result = sp.album_tracks(album_id, limit=10, offset=offset)
             caption = f"💿 **{album_info['name']}** - آهنگ‌ها ({offset+1} - {offset+len(tracks_result['items'])}):"
             keyboard = []
             for track in tracks_result['items']:
-                # برای دانلود آهنگ‌های آلبوم، از callback دانلود عمومی استفاده می‌کنیم
                 keyboard.append([InlineKeyboardButton(f"🎧 {track['name']}", callback_data=f"dl:prepare:spotify:audio:{track['id']}")])
 
             nav_buttons = []
@@ -107,13 +124,15 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
         elif command == 'vr':
-            artist_info = sp.artist(item_id)
-            top_tracks = sp.artist_top_tracks(item_id)
+            artist_id = item_id
+            track_id_for_back_button = original_item_id
+            artist_info = sp.artist(artist_id)
+            top_tracks = sp.artist_top_tracks(artist_id)
             
             caption = f"🧑‍🎤 **هنرمند:** {artist_info['name']}\n\n**۵ آهنگ برتر:**\n"
             caption += "\n".join([f"- `{track['name']}`" for track in top_tracks['tracks'][:5]])
 
-            keyboard = [[InlineKeyboardButton("⬅️ بازگشت", callback_data=f"s:rs:{original_track_id_or_album_id}")]]
+            keyboard = [[InlineKeyboardButton("⬅️ بازگشت", callback_data=f"s:rs:{track_id_for_back_button}")]]
             await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
         elif command == 'reshow_album':
@@ -131,7 +150,10 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             spotify_service = SpotifyService()
             track_info = sp.track(item_id)
             caption, reply_markup = spotify_service.build_track_panel(track_info)
-            await query.message.delete()
+            try:
+                await query.message.delete()
+            except Exception:
+                pass 
             await context.bot.send_photo(
                 chat_id=query.message.chat_id,
                 photo=track_info['album']['images'][0]['url'],
@@ -142,7 +164,7 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
 
     except BadRequest as e:
         if "message is not modified" not in str(e):
-            logging.error(f"Telegram BadRequest in spotify_handler: {e}")
+            logging.warning(f"Telegram BadRequest in spotify_handler: {e}")
     except Exception as e:
         logging.error(f"Error in spotify_handler: {e}", exc_info=True)
         try:

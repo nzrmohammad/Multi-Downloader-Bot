@@ -10,6 +10,7 @@ from .downloader import start_actual_download, handle_playlist_zip_download
 download_requests = {}
 cancelled_tasks = {}
 
+# FIX: Added 'user' parameter to the function definition
 async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     query = update.callback_query
     await query.answer()

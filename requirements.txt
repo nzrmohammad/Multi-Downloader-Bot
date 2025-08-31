@@ -15,3 +15,5 @@ lxml
 mutagen
 aiosqlite
 uvloop
+aiohttp
+spotdl

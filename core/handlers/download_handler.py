@@ -2,25 +2,25 @@
 
 import os
 import logging
-import yt_dlp
 import uuid
 import time
 import requests
 import asyncio
+import shutil
+import yt_dlp
+import zipfile
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, TRCK
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.error import BadRequest
-import zipfile
-import shutil
+from spotdl import Spotdl
+from yt_dlp.utils import DownloadError
 
 import config
 from core.settings import settings
-from core.user_manager import get_or_create_user, can_download, increment_download_count, log_activity, get_file_size_limit
-from .spotify_handler import sp
+from core.user_manager import can_download, increment_download_count, log_activity, get_file_size_limit, get_or_create_user
 from core.log_forwarder import forward_download_to_log_channel
-from yt_dlp.utils import DownloadError
 
 download_requests = {}
 logger = logging.getLogger(__name__)
@@ -67,11 +67,10 @@ async def _edit_message_safe(query, text, is_photo, reply_markup=None):
         if "message is not modified" not in str(e):
             logging.warning(f"Could not edit message: {e}")
 
-async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     query = update.callback_query
     await query.answer()
 
-    user = get_or_create_user(update)
     parts = query.data.split(':')
     command = parts[1]
 
@@ -111,6 +110,10 @@ async def start_actual_download(query, user, dl_info, context):
     quality_info = dl_info['quality']
     resource_id = dl_info['resource_id']
     original_caption = dl_info.get('original_message_caption', '')
+    
+    if service == 'spotify':
+        await handle_spotify_download(query, user, resource_id, context, original_caption)
+        return
 
     url_map = {
         'youtube': f"https://www.youtube.com/watch?v={resource_id}",
@@ -120,18 +123,12 @@ async def start_actual_download(query, user, dl_info, context):
         'twitch': f"https://www.twitch.tv/videos/{resource_id}" if resource_id.isdigit() else f"https://www.twitch.tv/clips/{resource_id}",
         'pornhub': f"https://www.pornhub.com/view_video.php?viewkey={resource_id}",
         'redtube': f"https://www.redtube.com/{resource_id}",
-        'deezer': resource_id
+        'deezer': resource_id 
     }
     download_url = url_map.get(service, resource_id)
 
-    if service == 'spotify':
-        track_info = sp.track(resource_id)
-        search_query = f"{track_info['artists'][0]['name']} - {track_info['name']} official audio"
-        download_url = f"ytsearch1:{search_query}"
-
     last_update_time = [0]
     loop = asyncio.get_running_loop()
-
     file_size_limit = get_file_size_limit(user)
 
     async def progress_hook(d):
@@ -139,7 +136,8 @@ async def start_actual_download(query, user, dl_info, context):
         if d['status'] == 'downloading' and current_time - last_update_time[0] > 2:
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
             if total_bytes > file_size_limit:
-                raise DownloadError("File size exceeds the allowed limit for your plan.")
+                raise DownloadError(f"File size exceeds the {file_size_limit / 1024**3}GB limit for your plan.")
+
             if total_bytes > 0:
                 progress = d['downloaded_bytes'] / total_bytes
                 progress_bar = _create_progress_bar(progress)
@@ -148,12 +146,12 @@ async def start_actual_download(query, user, dl_info, context):
                 text = (f"**در حال دانلود از سرور...**\n\n"
                         f"{progress_bar} {progress:.0%}\n\n"
                         f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`")
-
+                
                 await _edit_message_safe(query, text, query.message.photo)
                 last_update_time[0] = current_time
 
     await _edit_message_safe(query, "✅ درخواست تایید شد. در حال اتصال به سرور...", query.message.photo)
-
+    
     ydl_opts_base = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'legacy_server_connect': True,
@@ -162,6 +160,10 @@ async def start_actual_download(query, user, dl_info, context):
         'proxy': config.get_random_proxy(),
         'socket_timeout': 300,
     }
+
+    if settings.YOUTUBE_COOKIES_FILE and service == 'youtube':
+        ydl_opts_base['cookiefile'] = settings.YOUTUBE_COOKIES_FILE
+        logger.info("Using YouTube cookies file for download.")
 
     filename = None
     try:
@@ -175,7 +177,7 @@ async def start_actual_download(query, user, dl_info, context):
             ydl_opts = {**ydl_opts_base, 'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]}
 
         os.makedirs('downloads', exist_ok=True)
-
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await loop.run_in_executor(
                 None, lambda: ydl.extract_info(download_url, download=True)
@@ -183,21 +185,11 @@ async def start_actual_download(query, user, dl_info, context):
             original_filename = ydl.prepare_filename(info)
             if 'audio' in quality_info:
                 filename = os.path.splitext(original_filename)[0] + '.mp3'
-                if service == 'spotify':
-                    spotify_track_info = sp.track(resource_id)
-                    tag_info = {
-                        'track': spotify_track_info['name'],
-                        'artist': ', '.join([artist['name'] for artist in spotify_track_info['artists']]),
-                        'album': spotify_track_info['album']['name'],
-                        'track_number': spotify_track_info['track_number'],
-                        'thumbnail': spotify_track_info['album']['images'][0]['url'] if spotify_track_info['album']['images'] else None
-                    }
-                    await loop.run_in_executor(None, _add_id3_tags, filename, tag_info)
             else:
                 filename = original_filename
 
         await _edit_message_safe(query, "فایل شما دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
-
+        
         final_caption = info.get('title', 'Downloaded File')
         with open(filename, 'rb') as file_to_send:
             if 'audio' in quality_info:
@@ -210,15 +202,15 @@ async def start_actual_download(query, user, dl_info, context):
                     chat_id=user.user_id, video=file_to_send, filename=os.path.basename(filename),
                     caption=final_caption, supports_streaming=True
                 )
-
-        increment_download_count(user.user_id)
-        log_activity(user.user_id, 'download', details=f"{service}:{quality_info}")
+        
+        await increment_download_count(user.user_id)
+        await log_activity(user.user_id, 'download', details=f"{service}:{quality_info}")
         await forward_download_to_log_channel(context, user, sent_message, service, download_url)
         await query.message.delete()
 
     except DownloadError as e:
         logger.error(f"yt-dlp download error: {e}", exc_info=True)
-        error_message = f"❌ دانلود ممکن نیست. {e}"
+        error_message = f"❌ دانلود ممکن نیست. محتوا ممکن است خصوصی، حذف شده یا برای منطقه شما در دسترس نباشد.\n`{e}`"
         await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
     except Exception as e:
         logger.error(f"Actual download error: {e}", exc_info=True)
@@ -228,21 +220,81 @@ async def start_actual_download(query, user, dl_info, context):
         if filename and os.path.exists(filename):
             os.remove(filename)
 
+async def handle_spotify_download(query, user, track_id, context, original_caption):
+    """
+    Downloads a Spotify track using the spotdl library for the highest quality.
+    """
+    await _edit_message_safe(query, "✅ درخواست تایید شد. در حال اتصال به سرورهای موسیقی...", query.message.photo)
+    
+    download_path = f"downloads/{uuid.uuid4()}"
+    os.makedirs(download_path, exist_ok=True)
+    
+    filename = None
+    try:
+        # FIX: Changed 'output' to the correct 'output_format' argument
+        spotdl_client = Spotdl(
+            client_id=settings.SPOTIPY_CLIENT_ID,
+            client_secret=settings.SPOTIPY_CLIENT_SECRET,
+            output=f"{download_path}/{{title}}.{{output-ext}}",
+            headless=True,
+            ffmpeg="ffmpeg" 
+        )
+
+        spotify_url = f"https://open.spotify.com/track/{track_id}"
+        
+        loop = asyncio.get_running_loop()
+        songs = await loop.run_in_executor(
+            None, lambda: spotdl_client.download([spotify_url])
+        )
+
+        if not songs or not songs[0][1]:
+            raise Exception("spotdl could not download the song.")
+
+        song_object, filename = songs[0]
+        
+        await _edit_message_safe(query, "فایل با بالاترین کیفیت دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
+        
+        final_caption = f"{song_object.name} by {', '.join(song_object.artists)}"
+        
+        with open(filename, 'rb') as file_to_send:
+            sent_message = await context.bot.send_audio(
+                chat_id=user.user_id,
+                audio=file_to_send,
+                filename=os.path.basename(filename),
+                caption=final_caption,
+                title=song_object.name,
+                performer=', '.join(song_object.artists),
+                duration=int(song_object.duration)
+            )
+        
+        await increment_download_count(user.user_id)
+        await log_activity(user.user_id, 'download', details=f"spotify:audio_hq")
+        await forward_download_to_log_channel(context, user, sent_message, "spotify_hq", spotify_url)
+        await query.message.delete()
+
+    except Exception as e:
+        logger.error(f"Spotify (spotdl) download error: {e}", exc_info=True)
+        error_message = "❌ یک خطای پیش‌بینی نشده در هنگام دانلود از اسپاتیفای رخ داد."
+        await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
+    finally:
+        if os.path.exists(download_path):
+            shutil.rmtree(download_path)
+
 async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    user = get_or_create_user(update)
-    if not can_download(user) or user.subscription_tier not in ['gold', 'platinum', 'diamond']:
+    
+    user = await get_or_create_user(query)
+    if not can_download(user) or user.subscription_tier not in ['gold', 'diamond']:
         await query.edit_message_text("برای این کار به اشتراک طلایی یا الماسی نیاز دارید.")
         return
 
     playlist_id = query.data.split(':')[2]
     playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
-
+    
     download_path = os.path.join('downloads', str(uuid.uuid4()))
     os.makedirs(download_path, exist_ok=True)
-
+    
     await query.edit_message_text(f"در حال آماده‌سازی برای دانلود پلی‌لیست...\nاین فرآیند ممکن است بسیار زمان‌بر باشد.")
 
     zip_filepath = None
@@ -261,33 +313,34 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
             info = await loop.run_in_executor(
                 None, lambda: ydl.extract_info(playlist_url, download=True)
             )
-
+        
         playlist_title = info.get('title', playlist_id)
         safe_playlist_title = "".join([c for c in playlist_title if c.isalnum() or c==' ']).rstrip()
         zip_filename = f"{safe_playlist_title}.zip"
-        zip_filepath = os.path.join('downloads', zip_filename)
+        zip_filepath = os.path.join('downloads', safe_playlist_title)
 
         downloaded_count = len([entry for entry in info.get('entries', []) if entry])
         await query.edit_message_text(f"دانلود {downloaded_count} فایل کامل شد. در حال فشرده‌سازی...")
 
         await loop.run_in_executor(
-            None, lambda: shutil.make_archive(os.path.join('downloads', safe_playlist_title), 'zip', download_path)
+            None, lambda: shutil.make_archive(zip_filepath, 'zip', download_path)
         )
-        zip_filepath += '.zip' # shutil adds .zip automatically
+        
+        zip_filepath_final = f"{zip_filepath}.zip"
 
         await query.edit_message_text("فایل فشرده شد. در حال آپلود...")
 
-        with open(zip_filepath, 'rb') as zf:
+        with open(zip_filepath_final, 'rb') as zf:
             await context.bot.send_document(
                 chat_id=user.user_id,
                 document=zf,
                 filename=zip_filename,
                 caption=f"📦 پلی‌لیست صوتی: {playlist_title}"
             )
-
+        
         await query.message.delete()
-        increment_download_count(user.user_id)
-        log_activity(user.user_id, 'download_playlist', details=f"youtube_zip:{playlist_id}")
+        await increment_download_count(user.user_id)
+        await log_activity(user.user_id, 'download_playlist', details=f"youtube_zip:{playlist_id}")
 
     except Exception as e:
         logger.error(f"Error creating playlist zip for {playlist_id}: {e}", exc_info=True)
@@ -295,5 +348,5 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
     finally:
         if os.path.exists(download_path):
             shutil.rmtree(download_path)
-        if zip_filepath and os.path.exists(zip_filepath):
-            os.remove(zip_filepath)
+        if zip_filepath and os.path.exists(f"{zip_filepath}.zip"):
+            os.remove(f"{zip_filepath}.zip")

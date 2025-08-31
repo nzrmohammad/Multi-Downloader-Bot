@@ -6,6 +6,7 @@ import yt_dlp
 from telegram import Update
 from telegram.ext import ContextTypes
 import config
+from core.settings import settings
 from yt_dlp.utils import DownloadError
 
 logger = logging.getLogger(__name__)
@@ -30,38 +31,43 @@ class BaseService:
         """
         max_retries = 3
         for attempt in range(max_retries):
+            proxy = config.get_random_proxy()
             try:
-                # تنظیمات پیش‌فرض yt-dlp
                 default_opts = {
                     'quiet': True,
                     'noplaylist': True,
                     'nocheckcertificate': True,
-                    'proxy': config.get_random_proxy(),
+                    'proxy': proxy,
                 }
 
-                # ادغام تنظیمات پیش‌فرض با تنظیمات ورودی
+                # FIX: Add cookie file to yt-dlp options if it exists
+                if settings.YOUTUBE_COOKIES_FILE and "youtube.com" in url:
+                    default_opts['cookiefile'] = settings.YOUTUBE_COOKIES_FILE
+                    logger.info("Using YouTube cookies file for extraction.")
+
                 if ydl_opts:
                     default_opts.update(ydl_opts)
 
                 with yt_dlp.YoutubeDL(default_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
-                return info # در صورت موفقیت، از حلقه خارج شو
+                return info
 
             except DownloadError as e:
-                # اگر خطا مربوط به پراکسی بود، در تلاش بعدی پراکسی جدید انتخاب می‌شود
-                if 'proxy' in str(e).lower():
-                    logger.warning(f"Proxy error on attempt {attempt + 1}/{max_retries} for URL {url}: {e}")
+                # FIX: Report the failed proxy to the smart handler
+                if proxy and 'proxy' in str(e).lower():
+                    config.handle_proxy_failure(proxy)
+                    logger.warning(f"Proxy error on attempt {attempt + 1}/{max_retries} for URL {url}.")
                     if attempt < max_retries - 1:
-                        continue # ادامه بده و دوباره تلاش کن
-                # خطاهای دیگر معمولا به دلیل مشکلات لینک (خصوصی، حذف شده) است
+                        continue
+                
                 logger.warning(f"yt-dlp DownloadError for URL {url}: {e}")
-                return None # برای این خطاها تلاش مجدد نکن
+                return None
             except Exception as e:
-                # خطاهای دیگر ممکن است مربوط به شبکه یا پراکسی باشند
+                if proxy:
+                    config.handle_proxy_failure(proxy)
                 logger.error(f"Generic error in _extract_info_ydl for URL {url} on attempt {attempt + 1}: {e}", exc_info=True)
                 if attempt < max_retries - 1:
                     continue
         
-        # اگر تمام تلاش‌ها ناموفق بود
         logger.error(f"Failed to extract info for {url} after {max_retries} attempts.")
         return None

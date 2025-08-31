@@ -3,7 +3,7 @@
 import logging
 import asyncio
 from logging.handlers import RotatingFileHandler
-import uvloop  # <--- افزودن uvloop
+import uvloop
 
 from bot.application import create_application
 from bot.handlers import register_handlers
@@ -12,10 +12,8 @@ from core.handlers.service_manager import initialize_services
 from core.scheduler import setup_scheduler
 import config
 
-# --- نصب uvloop برای عملکرد بهتر asyncio ---
 uvloop.install()
 
-# --- تنظیمات لاگ (کلاس ContextFilter و بقیه کدها بدون تغییر) ---
 class ContextFilter(logging.Filter):
     def filter(self, record):
         if not hasattr(record, 'user_id'):
@@ -35,40 +33,38 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
+
+# FIX: Set noisy libraries to WARNING level to keep logs clean
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("aiohttp").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING) # This will hide the "Unclosed connection" error
 
 
 async def main() -> None:
     """ربات را به صورت غیرهمزمان راه‌اندازی و اجرا می‌کند."""
-
-    # --- آماده‌سازی اولیه پایگاه داده ---
+    
     logger.info("Initializing database...")
     await database.create_db()
-
-    # --- ثبت سرویس‌ها در پایگاه داده ---
+    
     logger.info("Initializing services in database...")
     await initialize_services()
 
-    # --- به‌روزرسانی پراکسی‌ها ---
-    config.update_proxies_from_source()
+    asyncio.create_task(config.update_and_test_proxies())
 
-    # --- ساخت اپلیکیشن و ثبت هندلرها ---
     application = create_application()
     register_handlers(application)
-
-    # --- اجرای ربات و زمان‌بند در یک حلقه asyncio ---
+    
     logger.info("Starting bot polling with uvloop...")
     async with application:
         await application.start()
         await application.updater.start_polling()
-
+        
         scheduler = setup_scheduler(application)
-        scheduler.add_job(config.update_proxies_from_source, 'interval', minutes=60)
-        logger.info("Proxy update job scheduled.")
-
-        # این حلقه بی‌نهایت، اسکریپت را تا زمان توقف دستی (Ctrl+C) زنده نگه می‌دارد
+        scheduler.add_job(config.update_and_test_proxies, 'interval', hours=12)
+        logger.info("Proxy update and validation job scheduled to run every 12 hours.")
+        
         await asyncio.Event().wait()
 
 
