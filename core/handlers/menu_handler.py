@@ -22,7 +22,10 @@ def get_main_menu_keyboard(user_id, lang='en'):
             InlineKeyboardButton(get_text('menu_account', lang), callback_data="account:main"),
             InlineKeyboardButton(get_text('menu_settings', lang), callback_data="settings:main")
         ],
-        [InlineKeyboardButton(get_text('menu_about', lang), callback_data="about:main")],
+        [
+            InlineKeyboardButton(get_text('menu_plans', lang), callback_data="plans:show"),
+            InlineKeyboardButton(get_text('menu_about', lang), callback_data="about:main")
+        ],
     ]
     if user_id == settings.ADMIN_ID:
         keyboard.append([InlineKeyboardButton("👑 پنل مدیریت", callback_data="admin:main")])
@@ -38,9 +41,9 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if command == 'main':
         main_text = get_text('welcome', lang)
         await query.edit_message_text(text=main_text, reply_markup=get_main_menu_keyboard(user.user_id, lang))
-    
+
     elif command == 'help_link':
-        help_text = "برای دانلود، کافی است لینک مورد نظر خود را از سرویس‌های پشتیبانی‌شده ارسال کنید."
+        help_text = "برای دانلود، کافی است لینک مورد نظر خود را از سرویس‌های پشتیبانی‌شده ارسال کنید. ربات به طور خودکار لینک را پردازش کرده و گزینه‌های دانلود را به شما نمایش می‌دهد."
         keyboard = [[InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]]
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -48,29 +51,29 @@ async def handle_service_status_callback(update: Update, context: ContextTypes.D
     """وضعیت سرویس‌ها و دسترسی کاربر به آن‌ها را نمایش می‌دهد."""
     query = update.callback_query
     lang = user.language
-    
+
     premium_services = ['pornhub', 'redtube', 'twitch']
 
     async with AsyncSessionLocal() as session:
         statuses = await get_all_statuses(session)
-    
+
     status_text = get_text('services_title', lang)
     if statuses:
         for s in sorted(statuses, key=lambda s: s.service_name):
             emoji = "✅" if s.is_enabled else "❌"
             access_emoji = ""
-            
+
             if s.service_name.lower() in premium_services and user.subscription_tier == 'free':
                 access_emoji = "🔒"
-            
+
             status_text += f"{emoji} **{s.service_name.capitalize()}** {access_emoji}\n"
-        
+
         status_text += "\n" + get_text('service_legend', lang)
     else:
         status_text += get_text('no_services', lang)
 
     keyboard = [[InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]]
-    
+
     await query.edit_message_text(
         text=status_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -87,7 +90,7 @@ async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_
         'gold': float('inf'), 'diamond': float('inf')
     }
     limit = tier_limits.get(user.subscription_tier, 0)
-    
+
     if limit == float('inf'):
         daily_usage_text = "نامحدود"
     else:
@@ -116,9 +119,9 @@ async def handle_account_callback(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("💎 مشاهده و ارتقاء پلن‌ها", callback_data="plans:show")],
         [InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]
     ]
-    
+
     await query.edit_message_text(text=account_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
-    
+
 
 async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     """منوی تنظیمات را مدیریت می‌کند."""
@@ -134,7 +137,7 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
             [InlineKeyboardButton(get_text('back_button', lang), callback_data="menu:main")]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-    
+
     elif command == 'lang':
         text = get_text('settings_language_select', lang)
         keyboard = [
@@ -164,21 +167,21 @@ async def handle_settings_callback(update: Update, context: ContextTypes.DEFAULT
         quality = query.data.split(':')[3]
         async with AsyncSessionLocal() as session:
             await set_user_quality_setting(session, user, platform, quality)
-        
+
         await query.answer(f"کیفیت پیش‌فرض برای {platform.upper()} به {quality} تغییر کرد.")
-        
+
         # Refresh the user object to show updated settings
         user_id = update.effective_user.id
         async with AsyncSessionLocal() as session:
             refreshed_user = await session.get(User, user_id)
-        
+
         await handle_settings_callback(update, context, refreshed_user)
 
 
 async def handle_about_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     query = update.callback_query
     lang = user.language
-    
+
     about_text = (
         "**ℹ️ درباره ربات**\n\n"
         "این ربات برای دانلود آسان محتوا از سرویس‌های مختلف ساخته شده است.\n\n"
@@ -186,7 +189,7 @@ async def handle_about_callback(update: Update, context: ContextTypes.DEFAULT_TY
         "▪️ **کانال آپدیت‌ها:** @YourChannelUsername\n\n"
         "برای حمایت مالی از پروژه و کمک به پایدار ماندن سرورها می‌توانید از طریق لینک زیر اقدام کنید."
     )
-    
+
     keyboard = [
         [InlineKeyboardButton("💰 حمایت مالی", url="https://your-donation-link.com")],
         [InlineKeyboardButton("⬅️ " + get_text('back_button', lang), callback_data="menu:main")]

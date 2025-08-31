@@ -17,7 +17,7 @@ import shutil
 
 import config
 from core.settings import settings
-from core.user_manager import get_or_create_user, can_download, increment_download_count, log_activity
+from core.user_manager import get_or_create_user, can_download, increment_download_count, log_activity, get_file_size_limit
 from .spotify_handler import sp
 from core.log_forwarder import forward_download_to_log_channel
 from yt_dlp.utils import DownloadError
@@ -111,7 +111,7 @@ async def start_actual_download(query, user, dl_info, context):
     quality_info = dl_info['quality']
     resource_id = dl_info['resource_id']
     original_caption = dl_info.get('original_message_caption', '')
-    
+
     url_map = {
         'youtube': f"https://www.youtube.com/watch?v={resource_id}",
         'twitter': f"https://twitter.com/anyuser/status/{resource_id}",
@@ -120,7 +120,7 @@ async def start_actual_download(query, user, dl_info, context):
         'twitch': f"https://www.twitch.tv/videos/{resource_id}" if resource_id.isdigit() else f"https://www.twitch.tv/clips/{resource_id}",
         'pornhub': f"https://www.pornhub.com/view_video.php?viewkey={resource_id}",
         'redtube': f"https://www.redtube.com/{resource_id}",
-        'deezer': resource_id 
+        'deezer': resource_id
     }
     download_url = url_map.get(service, resource_id)
 
@@ -132,10 +132,14 @@ async def start_actual_download(query, user, dl_info, context):
     last_update_time = [0]
     loop = asyncio.get_running_loop()
 
+    file_size_limit = get_file_size_limit(user)
+
     async def progress_hook(d):
         current_time = time.time()
         if d['status'] == 'downloading' and current_time - last_update_time[0] > 2:
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+            if total_bytes > file_size_limit:
+                raise DownloadError("File size exceeds the allowed limit for your plan.")
             if total_bytes > 0:
                 progress = d['downloaded_bytes'] / total_bytes
                 progress_bar = _create_progress_bar(progress)
@@ -144,12 +148,12 @@ async def start_actual_download(query, user, dl_info, context):
                 text = (f"**در حال دانلود از سرور...**\n\n"
                         f"{progress_bar} {progress:.0%}\n\n"
                         f"`{downloaded_mb:.1f} MB / {total_mb:.1f} MB`")
-                
+
                 await _edit_message_safe(query, text, query.message.photo)
                 last_update_time[0] = current_time
 
     await _edit_message_safe(query, "✅ درخواست تایید شد. در حال اتصال به سرور...", query.message.photo)
-    
+
     ydl_opts_base = {
         'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
         'legacy_server_connect': True,
@@ -171,7 +175,7 @@ async def start_actual_download(query, user, dl_info, context):
             ydl_opts = {**ydl_opts_base, 'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]}
 
         os.makedirs('downloads', exist_ok=True)
-        
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = await loop.run_in_executor(
                 None, lambda: ydl.extract_info(download_url, download=True)
@@ -193,7 +197,7 @@ async def start_actual_download(query, user, dl_info, context):
                 filename = original_filename
 
         await _edit_message_safe(query, "فایل شما دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
-        
+
         final_caption = info.get('title', 'Downloaded File')
         with open(filename, 'rb') as file_to_send:
             if 'audio' in quality_info:
@@ -206,7 +210,7 @@ async def start_actual_download(query, user, dl_info, context):
                     chat_id=user.user_id, video=file_to_send, filename=os.path.basename(filename),
                     caption=final_caption, supports_streaming=True
                 )
-        
+
         increment_download_count(user.user_id)
         log_activity(user.user_id, 'download', details=f"{service}:{quality_info}")
         await forward_download_to_log_channel(context, user, sent_message, service, download_url)
@@ -214,7 +218,7 @@ async def start_actual_download(query, user, dl_info, context):
 
     except DownloadError as e:
         logger.error(f"yt-dlp download error: {e}", exc_info=True)
-        error_message = "❌ دانلود ممکن نیست. محتوا ممکن است خصوصی، حذف شده یا برای منطقه شما در دسترس نباشد."
+        error_message = f"❌ دانلود ممکن نیست. {e}"
         await _edit_message_safe(query, f"{original_caption}\n\n{error_message}", query.message.photo)
     except Exception as e:
         logger.error(f"Actual download error: {e}", exc_info=True)
@@ -227,7 +231,7 @@ async def start_actual_download(query, user, dl_info, context):
 async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
+
     user = get_or_create_user(update)
     if not can_download(user) or user.subscription_tier not in ['gold', 'platinum', 'diamond']:
         await query.edit_message_text("برای این کار به اشتراک طلایی یا الماسی نیاز دارید.")
@@ -235,10 +239,10 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
 
     playlist_id = query.data.split(':')[2]
     playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
-    
+
     download_path = os.path.join('downloads', str(uuid.uuid4()))
     os.makedirs(download_path, exist_ok=True)
-    
+
     await query.edit_message_text(f"در حال آماده‌سازی برای دانلود پلی‌لیست...\nاین فرآیند ممکن است بسیار زمان‌بر باشد.")
 
     zip_filepath = None
@@ -257,7 +261,7 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
             info = await loop.run_in_executor(
                 None, lambda: ydl.extract_info(playlist_url, download=True)
             )
-        
+
         playlist_title = info.get('title', playlist_id)
         safe_playlist_title = "".join([c for c in playlist_title if c.isalnum() or c==' ']).rstrip()
         zip_filename = f"{safe_playlist_title}.zip"
@@ -280,7 +284,7 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
                 filename=zip_filename,
                 caption=f"📦 پلی‌لیست صوتی: {playlist_title}"
             )
-        
+
         await query.message.delete()
         increment_download_count(user.user_id)
         log_activity(user.user_id, 'download_playlist', details=f"youtube_zip:{playlist_id}")

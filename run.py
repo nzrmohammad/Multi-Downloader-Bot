@@ -20,9 +20,11 @@ class ContextFilter(logging.Filter):
     def filter(self, record):
         if not hasattr(record, 'user_id'):
             record.user_id = 'SYSTEM'
+        if not hasattr(record, 'message_id'):
+            record.message_id = 'N/A'
         return True
 
-log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - [user_id:%(user_id)s]')
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s - [user_id:%(user_id)s] - [message_id:%(message_id)s]')
 file_handler = RotatingFileHandler('bot.log', maxBytes=2*1024*1024, backupCount=2, encoding='utf-8')
 file_handler.setFormatter(log_formatter)
 file_handler.addFilter(ContextFilter())
@@ -40,11 +42,11 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 
 async def main() -> None:
     """ربات را به صورت غیرهمزمان راه‌اندازی و اجرا می‌کند."""
-    
+
     # --- آماده‌سازی اولیه پایگاه داده ---
     logger.info("Initializing database...")
     await database.create_db()
-    
+
     # --- ثبت سرویس‌ها در پایگاه داده ---
     logger.info("Initializing services in database...")
     await initialize_services()
@@ -55,17 +57,17 @@ async def main() -> None:
     # --- ساخت اپلیکیشن و ثبت هندلرها ---
     application = create_application()
     register_handlers(application)
-    
+
     # --- اجرای ربات و زمان‌بند در یک حلقه asyncio ---
     logger.info("Starting bot polling with uvloop...")
     async with application:
         await application.start()
         await application.updater.start_polling()
-        
+
         scheduler = setup_scheduler(application)
         scheduler.add_job(config.update_proxies_from_source, 'interval', minutes=60)
         logger.info("Proxy update job scheduled.")
-        
+
         # این حلقه بی‌نهایت، اسکریپت را تا زمان توقف دستی (Ctrl+C) زنده نگه می‌دارد
         await asyncio.Event().wait()
 

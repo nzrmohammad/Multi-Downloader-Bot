@@ -30,11 +30,11 @@ async def get_or_create_user(db: AsyncSession, update: Update) -> User:
         user.username = username
         if user.subscription_tier != 'free' and user.subscription_expiry_date and user.subscription_expiry_date < datetime.datetime.utcnow():
             user.subscription_tier = 'free'
-        
+
         if user.last_download_date != datetime.date.today():
             user.daily_downloads = 0
             user.last_download_date = datetime.date.today()
-    
+
     await db.commit()
     await db.refresh(user)
     return user
@@ -68,13 +68,13 @@ async def set_user_plan(db: AsyncSession, user: User, tier: str, duration_days: 
         new_expiry_date = user.subscription_expiry_date + datetime.timedelta(days=duration_days)
     else:
         new_expiry_date = datetime.datetime.utcnow() + datetime.timedelta(days=duration_days)
-    
+
     user.subscription_tier = tier
     user.subscription_expiry_date = new_expiry_date
-    
+
     new_purchase = Purchase(user_id=user.user_id, duration_days=duration_days, tier_purchased=tier)
     db.add(new_purchase)
-    
+
     await db.commit()
     return True
 
@@ -92,7 +92,7 @@ async def set_user_quality_setting(db: AsyncSession, user: User, platform: str, 
         user.settings_yt_quality = quality
     elif platform == 'spotify':
         user.settings_spotify_quality = quality
-    
+
     await db.commit()
 
 # =================================================================
@@ -110,14 +110,14 @@ async def log_activity(db: AsyncSession, user: User, activity_type: str, details
     """یک فعالیت کاربر را ثبت کرده و آمار دانلود را در ستون JSON به‌روز می‌کند."""
     log = ActivityLog(user_id=user.user_id, activity_type=activity_type, details=details)
     db.add(log)
-    
+
     if activity_type == 'download' and details:
         if user:
             stats = json.loads(user.download_stats or '{}')
             service = details.split(':')[0]
             stats[service] = stats.get(service, 0) + 1
             user.download_stats = json.dumps(stats)
-    
+
     await db.commit()
 
 async def get_user_last_activity(db: AsyncSession, user_id: int) -> datetime.datetime | None:
@@ -135,13 +135,13 @@ async def get_user_last_activity(db: AsyncSession, user_id: int) -> datetime.dat
 async def get_users_paginated(db: AsyncSession, page: int = 1, per_page: int = 10) -> tuple[list[User], int]:
     """لیستی از کاربران را به صورت صفحه‌بندی شده برای پنل ادمین برمی‌گرداند."""
     offset = (page - 1) * per_page
-    
+
     users_query = select(User).order_by(User.created_at.desc()).offset(offset).limit(per_page)
     total_query = select(func.count(User.user_id))
-    
+
     users_result = await db.execute(users_query)
     total_result = await db.execute(total_query)
-    
+
     return list(users_result.scalars().all()), total_result.scalar_one()
 
 async def delete_user_by_id(db: AsyncSession, user_id: int) -> bool:
@@ -176,7 +176,7 @@ async def get_bot_stats(db: AsyncSession) -> dict:
     total_users = (await db.execute(select(func.count(User.user_id)))).scalar_one()
     new_users_today = (await db.execute(select(func.count(User.user_id)).filter(func.date(User.created_at) == datetime.date.today()))).scalar_one()
     total_downloads = (await db.execute(select(func.sum(User.total_downloads)))).scalar_one() or 0
-    
+
     all_stats_json = (await db.execute(select(User.download_stats))).scalars().all()
     service_counts = {}
     for stats_json in all_stats_json:
@@ -201,7 +201,7 @@ async def create_promo_code(db: AsyncSession, code: str, tier: str, duration_day
     existing_code = (await db.execute(select(PromoCode).filter(PromoCode.code == code.upper()))).scalars().first()
     if existing_code:
         return None
-    
+
     new_code = PromoCode(code=code.upper(), tier=tier, duration_days=duration_days, max_uses=max_uses)
     db.add(new_code)
     await db.commit()
@@ -259,3 +259,9 @@ def get_batch_limit(user: User) -> int:
     if user.is_banned: return 0
     limits = {'free': 1, 'bronze': 1, 'silver': 1, 'gold': 10, 'diamond': 50}
     return limits.get(user.subscription_tier, 1)
+
+def get_file_size_limit(user: User) -> int:
+    """محدودیت حجم فایل کاربر را بر اساس پلن اشتراک او برمی‌گرداند."""
+    if user.subscription_tier in ['gold', 'diamond']:
+        return 4 * 1024 * 1024 * 1024  # 4 GB
+    return 2 * 1024 * 1024 * 1024  # 2 GB
