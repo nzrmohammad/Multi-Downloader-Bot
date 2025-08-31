@@ -28,12 +28,11 @@ class SpotifyService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SPOTIFY_URL_PATTERN, url) is not None
 
-    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
-        async with AsyncSessionLocal() as session:
-            user = await get_or_create_user(session, update)
-            if not can_download(user):
-                await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
-                return
+    # FIX: Added the 'user' parameter to the method signature
+    async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
+        if not can_download(user):
+            await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
+            return
 
         match = re.match(SPOTIFY_URL_PATTERN, url)
         link_type, item_id = match.groups()

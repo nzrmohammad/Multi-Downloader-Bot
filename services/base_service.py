@@ -26,30 +26,42 @@ class BaseService:
     async def _extract_info_ydl(self, url: str, ydl_opts: Dict[str, Any] = None) -> Dict[str, Any] | None:
         """
         یک متد کمکی برای استخراج اطلاعات با استفاده از yt-dlp.
-        این متد پراکسی و مدیریت خطای پایه را به صورت خودکار انجام می‌دهد.
+        این متد پراکسی و مدیریت خطای پایه را به صورت خودکار با ۳ بار تلاش مجدد انجام می‌دهد.
         """
-        # تنظیمات پیش‌فرض yt-dlp
-        default_opts = {
-            'quiet': True,
-            'noplaylist': True,
-            'nocheckcertificate': True,
-            'proxy': config.get_random_proxy(),
-        }
-        
-        # ادغام تنظیمات پیش‌فرض با تنظیمات ورودی
-        if ydl_opts:
-            default_opts.update(ydl_opts)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # تنظیمات پیش‌فرض yt-dlp
+                default_opts = {
+                    'quiet': True,
+                    'noplaylist': True,
+                    'nocheckcertificate': True,
+                    'proxy': config.get_random_proxy(),
+                }
 
-        try:
-            with yt_dlp.YoutubeDL(default_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            return info
-        except DownloadError as e:
-            # این خطاها معمولا به دلیل مشکلات لینک (خصوصی، حذف شده) است
-            logger.warning(f"yt-dlp DownloadError for URL {url}: {e}")
-            # در هر دو حالت خطا، None برمیگردانیم تا پیام یکسانی به کاربر نمایش داده شود
-            return None
-        except Exception as e:
-            # خطاهای دیگر ممکن است مربوط به شبکه یا پراکسی باشند
-            logger.error(f"Generic error in _extract_info_ydl for URL {url}: {e}", exc_info=True)
-            return None
+                # ادغام تنظیمات پیش‌فرض با تنظیمات ورودی
+                if ydl_opts:
+                    default_opts.update(ydl_opts)
+
+                with yt_dlp.YoutubeDL(default_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                return info # در صورت موفقیت، از حلقه خارج شو
+
+            except DownloadError as e:
+                # اگر خطا مربوط به پراکسی بود، در تلاش بعدی پراکسی جدید انتخاب می‌شود
+                if 'proxy' in str(e).lower():
+                    logger.warning(f"Proxy error on attempt {attempt + 1}/{max_retries} for URL {url}: {e}")
+                    if attempt < max_retries - 1:
+                        continue # ادامه بده و دوباره تلاش کن
+                # خطاهای دیگر معمولا به دلیل مشکلات لینک (خصوصی، حذف شده) است
+                logger.warning(f"yt-dlp DownloadError for URL {url}: {e}")
+                return None # برای این خطاها تلاش مجدد نکن
+            except Exception as e:
+                # خطاهای دیگر ممکن است مربوط به شبکه یا پراکسی باشند
+                logger.error(f"Generic error in _extract_info_ydl for URL {url} on attempt {attempt + 1}: {e}", exc_info=True)
+                if attempt < max_retries - 1:
+                    continue
+        
+        # اگر تمام تلاش‌ها ناموفق بود
+        logger.error(f"Failed to extract info for {url} after {max_retries} attempts.")
+        return None
