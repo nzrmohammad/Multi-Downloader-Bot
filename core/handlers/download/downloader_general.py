@@ -16,11 +16,13 @@ from core.log_forwarder import forward_download_to_log_channel
 from core.utils import create_progress_bar, edit_message_safe
 from database.database import AsyncSessionLocal
 
+
 logger = logging.getLogger(__name__)
 
 async def start_actual_download(query, user, dl_info, context):
+    from core.handlers.download.callbacks import url_cache
     """منطق اصلی دانلود از سرویس‌های عمومی با استفاده از yt-dlp."""
-    if not user_manager.can_download(user): # <--- افزودن پیشوند
+    if not user_manager.can_download(user):
         await edit_message_safe(query, "شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕", query.message.photo)
         return
 
@@ -29,6 +31,7 @@ async def start_actual_download(query, user, dl_info, context):
     resource_id = dl_info['resource_id']
     original_caption = dl_info.get('original_message_caption', '')
 
+    # --- FIX: افزودن Dailymotion به لیست ---
     url_map = {
         'youtube': f"https://www.youtube.com/watch?v={resource_id}",
         'twitter': f"https://twitter.com/anyuser/status/{resource_id}",
@@ -37,19 +40,25 @@ async def start_actual_download(query, user, dl_info, context):
         'twitch': f"https://www.twitch.tv/videos/{resource_id}" if resource_id.isdigit() else f"https://www.twitch.tv/clips/{resource_id}",
         'pornhub': f"https://www.pornhub.com/view_video.php?viewkey={resource_id}",
         'redtube': f"https://www.redtube.com/{resource_id}",
+        'dailymotion': f"https://www.dailymotion.com/video/{resource_id}",
+        'vimeo': f"https://vimeo.com/{resource_id}",
+        'tiktok': f"https://www.tiktok.com/t/c/{resource_id}" # یک فرمت رایج برای لینک تیک‌تاک
     }
     download_url = url_map.get(service, resource_id)
 
+    if service == 'bandcamp':
+        download_url = url_cache.pop(resource_id, resource_id)
+
     last_update_time = [0]
     loop = asyncio.get_running_loop()
-    file_size_limit = user_manager.get_file_size_limit(user) # <--- افزودن پیشوند
+    file_size_limit = user_manager.get_file_size_limit(user)
 
     async def progress_hook(d):
         current_time = time.time()
         if d['status'] == 'downloading' and current_time - last_update_time[0] > 2:
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
             if total_bytes > file_size_limit:
-                raise DownloadError(f"File size exceeds the {file_size_limit / 1024**3}GB limit for your plan.")
+                raise DownloadError(f"حجم فایل از محدودیت {file_size_limit / 1024**3} گیگابایتی پلن شما بیشتر است.")
 
             if total_bytes > 0:
                 progress = d['downloaded_bytes'] / total_bytes
@@ -73,7 +82,7 @@ async def start_actual_download(query, user, dl_info, context):
         'socket_timeout': 300,
     }
 
-    if settings.INSTAGRAM_PASSWORD and service == 'youtube':
+    if settings.INSTAGRAM_USERNAME and os.path.exists(f"{settings.INSTAGRAM_USERNAME}.json"):
         ydl_opts_base['cookiefile'] = "cookies.txt" 
         logger.info("Using YouTube cookies file for download.")
 
@@ -83,10 +92,19 @@ async def start_actual_download(query, user, dl_info, context):
             format_selector = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
             if '_' in quality_info and quality_info.split('_')[1] not in ['hd', 'best']:
                  format_id = quality_info.split('_')[1]
-                 format_selector = f"bestvideo[format_id={format_id}]+bestaudio/best"
-            ydl_opts = {**ydl_opts_base, 'format': format_selector}
-        else: # Audio
-            ydl_opts = {**ydl_opts_base, 'format': 'bestaudio/best', 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]}
+                 format_selector = f"bestvideo[height<={format_id}][ext=mp4]+bestaudio[ext=m4a]/best[height<={format_id}][ext=mp4]/best"
+            ydl_opts = {**ydl_opts_base, 'format': format_selector, 'merge_output_format': 'mp4'}
+        else:
+            ydl_opts = {
+                **ydl_opts_base,
+                'format': 'bestaudio/best',
+                'postprocessors': [
+                    {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'},
+                    {'key': 'EmbedThumbnail'},
+                    {'key': 'FFmpegMetadata'}
+                ],
+                'writethumbnail': True,
+            }
 
         os.makedirs('downloads', exist_ok=True)
         
@@ -104,19 +122,22 @@ async def start_actual_download(query, user, dl_info, context):
         
         final_caption = info.get('title', 'Downloaded File')
         async with AsyncSessionLocal() as session:
+            user_db = await session.get(user_manager.User, user.user_id)
             if 'audio' in quality_info:
                 sent_message = await context.bot.send_audio(
                     chat_id=user.user_id, audio=open(filename, 'rb'), filename=os.path.basename(filename),
-                    caption=final_caption, title=info.get('track'), performer=info.get('artist')
+                    caption=final_caption, title=info.get('track'), performer=info.get('artist'),
+                    duration=info.get('duration')
                 )
             else:
                 sent_message = await context.bot.send_video(
                     chat_id=user.user_id, video=open(filename, 'rb'), filename=os.path.basename(filename),
-                    caption=final_caption, supports_streaming=True
+                    caption=final_caption, supports_streaming=True,
+                    duration=info.get('duration'), width=info.get('width'), height=info.get('height')
                 )
         
-            await user_manager.increment_download_count(session, user) # <--- افزودن پیشوند
-            await user_manager.log_activity(session, user, 'download', details=f"{service}:{quality_info}") # <--- افزودن پیشوند
+            await user_manager.increment_download_count(session, user_db)
+            await user_manager.log_activity(session, user_db, 'download', details=f"{service}:{quality_info}")
         await forward_download_to_log_channel(context, user, sent_message, service, download_url)
         await query.message.delete()
 

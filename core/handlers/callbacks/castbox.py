@@ -23,12 +23,15 @@ async def handle_castbox_callback(update: Update, context: ContextTypes.DEFAULT_
         episode_id = params[0]
         episode_url = f"https://castbox.fm/ep/{episode_id}"
         
+        # --- FIX: پیام را برای ویرایش بعدی به تابع process ارسال می‌کنیم ---
         original_message = await query.edit_message_text(f"در حال آماده‌سازی برای دانلود قسمت انتخابی...")
         
+        # ساخت یک آبجکت update شبیه‌سازی شده برای حفظ ساختار
         class MockUpdate:
             def __init__(self, message, effective_user):
                 self.message = message
                 self.effective_user = effective_user
 
         mock_update = MockUpdate(original_message, query.from_user)
-        await castbox_service.process(mock_update, context, user, episode_url)
+        # ارسال پیام اصلی به عنوان آرگومان جدید
+        await castbox_service.process(mock_update, context, user, episode_url, message_to_edit=original_message)

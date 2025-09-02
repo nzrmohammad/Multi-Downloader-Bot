@@ -12,6 +12,7 @@ from .downloader_spotify import handle_spotify_download
 # Global dictionaries to manage download state
 download_requests = {}
 cancelled_tasks = {}
+url_cache = {}
 
 async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     query = update.callback_query
