@@ -1,4 +1,4 @@
-# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/services/spotify.py
+# services/spotify.py
 
 import re
 import spotipy
@@ -11,7 +11,8 @@ from services.base_service import BaseService
 from core.user_manager import get_or_create_user, can_download
 from database.database import AsyncSessionLocal
 
-SPOTIFY_URL_PATTERN = re.compile(r"https://open\.spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)")
+# --- FIX: گسترش الگو برای شناسایی لینک هنرمند ---
+SPOTIFY_URL_PATTERN = re.compile(r"https://open\.spotify\.com/(track|album|playlist|artist)/([a-zA-Z0-9]+)")
 
 class SpotifyService(BaseService):
     def __init__(self):
@@ -28,7 +29,6 @@ class SpotifyService(BaseService):
     async def can_handle(self, url: str) -> bool:
         return re.match(SPOTIFY_URL_PATTERN, url) is not None
 
-    # FIX: Added the 'user' parameter to the method signature
     async def process(self, update: Update, context: ContextTypes.DEFAULT_TYPE, user, url: str):
         if not can_download(user):
             await update.message.reply_text("شما به حد مجاز دانلود روزانه خود رسیده‌اید. 😕")
@@ -57,12 +57,20 @@ class SpotifyService(BaseService):
                 )
             elif link_type == 'playlist':
                 if user.subscription_tier not in ['gold', 'diamond']:
-                     await processing_message.edit_text("برای دانلود پلی‌لیست اسپاتیفای، به اشتراک طلایی یا الماسی نیاز دارید.")
+                     await processing_message.edit_text("برای دانلود پلی‌لیست اسپاتیفay، به اشتراک طلایی یا الماسی نیاز دارید.")
                      return
                 playlist_info = self.sp.playlist(item_id)
                 caption, reply_markup = self.build_playlist_panel(playlist_info)
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id, photo=playlist_info['images'][0]['url'],
+                    caption=caption, reply_markup=reply_markup, parse_mode='Markdown'
+                )
+            # --- FIX: افزودن منطق برای لینک هنرمند ---
+            elif link_type == 'artist':
+                artist_info = self.sp.artist(item_id)
+                caption, reply_markup = self.build_artist_panel(artist_info)
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id, photo=artist_info['images'][0]['url'],
                     caption=caption, reply_markup=reply_markup, parse_mode='Markdown'
                 )
 
@@ -71,7 +79,6 @@ class SpotifyService(BaseService):
             await processing_message.edit_text(f"مشکلی در پردازش لینک اسپاتیفای پیش آمد: {e}")
 
     def build_track_panel(self, track_info: dict):
-        # ... (این متد بدون تغییر باقی می‌ماند)
         track_id = track_info['id']
         title = track_info['name']
         artists = ', '.join([artist['name'] for artist in track_info['artists']])
@@ -104,7 +111,6 @@ class SpotifyService(BaseService):
         return caption, InlineKeyboardMarkup(keyboard)
 
     def build_album_panel(self, album_info: dict):
-        # ... (این متد بدون تغییر باقی می‌ماند)
         album_id = album_info.get('id')
         album_name = album_info.get('name', 'N/A')
         artists = ', '.join([artist.get('name', 'N/A') for artist in album_info.get('artists', [])])
@@ -130,7 +136,6 @@ class SpotifyService(BaseService):
         return caption, InlineKeyboardMarkup(keyboard)
         
     def build_playlist_panel(self, playlist_info: dict):
-        """منوی مربوط به پلی‌لیست اسپاتیفای را ایجاد می‌کند."""
         playlist_id = playlist_info.get('id')
         playlist_name = playlist_info.get('name', 'N/A')
         owner = playlist_info.get('owner', {}).get('display_name', 'N/A')
@@ -146,4 +151,20 @@ class SpotifyService(BaseService):
             [InlineKeyboardButton("❌ بستن", callback_data="s:c")]
         ]
         
+        return caption, InlineKeyboardMarkup(keyboard)
+
+    # --- FIX: متد جدید برای ساخت پنل هنرمند ---
+    def build_artist_panel(self, artist_info: dict):
+        """منوی اصلی یک هنرمند را ایجاد می‌کند."""
+        artist_id = artist_info['id']
+        artist_name = artist_info['name']
+        followers = artist_info['followers']['total']
+        
+        caption = (f"🧑‍🎤 **هنرمند:** `{artist_name}`\n"
+                   f"👥 **دنبال‌کننده‌ها:** `{followers:,}`")
+
+        keyboard = [
+            [InlineKeyboardButton("💿 مشاهده آلبوم‌ها", callback_data=f"s:artist_albums:{artist_id}:1")],
+            [InlineKeyboardButton("❌ بستن", callback_data="s:c")]
+        ]
         return caption, InlineKeyboardMarkup(keyboard)

@@ -18,9 +18,13 @@ from spotdl import Spotdl
 from yt_dlp.utils import DownloadError
 import subprocess
 import json
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+
 
 import config
 from core.settings import settings
+from database.database import AsyncSessionLocal
 from core.user_manager import can_download, increment_download_count, log_activity, get_file_size_limit, get_or_create_user
 from core.log_forwarder import forward_download_to_log_channel
 
@@ -193,20 +197,20 @@ async def start_actual_download(query, user, dl_info, context):
         await _edit_message_safe(query, "فایل شما دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
         
         final_caption = info.get('title', 'Downloaded File')
-        with open(filename, 'rb') as file_to_send:
+        async with AsyncSessionLocal() as session:
             if 'audio' in quality_info:
                 sent_message = await context.bot.send_audio(
-                    chat_id=user.user_id, audio=file_to_send, filename=os.path.basename(filename),
+                    chat_id=user.user_id, audio=open(filename, 'rb'), filename=os.path.basename(filename),
                     caption=final_caption, title=info.get('track'), performer=info.get('artist')
                 )
             else:
                 sent_message = await context.bot.send_video(
-                    chat_id=user.user_id, video=file_to_send, filename=os.path.basename(filename),
+                    chat_id=user.user_id, video=open(filename, 'rb'), filename=os.path.basename(filename),
                     caption=final_caption, supports_streaming=True
                 )
         
-        await increment_download_count(user.user_id)
-        await log_activity(user.user_id, 'download', details=f"{service}:{quality_info}")
+            await increment_download_count(session, user)
+            await log_activity(session, user, 'download', details=f"{service}:{quality_info}")
         await forward_download_to_log_channel(context, user, sent_message, service, download_url)
         await query.message.delete()
 
@@ -233,27 +237,43 @@ async def handle_spotify_download(query, user, track_id, context, original_capti
     filename = None
     
     try:
+        # --- FIX: Get metadata directly from Spotify API for accuracy ---
+        auth_manager = SpotifyClientCredentials(
+            client_id=settings.SPOTIPY_CLIENT_ID,
+            client_secret=settings.SPOTIPY_CLIENT_SECRET
+        )
+        sp = spotipy.Spotify(auth_manager=auth_manager)
+        track_info = sp.track(track_id)
+        
+        title = track_info['name']
+        artists = ', '.join([artist['name'] for artist in track_info['artists']])
+        album_name = track_info['album']['name']
+        release_date = track_info['album']['release_date']
+        duration_ms = track_info['duration_ms']
+        
+        # Create a clean filename
+        safe_title = "".join([c for c in title if c.isalnum() or c in " ._"]).rstrip()
+        safe_artists = "".join([c for c in artists if c.isalnum() or c in " ._"]).rstrip()
+        clean_filename_base = f"{safe_artists} - {safe_title}"
+        
         spotify_url = f"https://open.spotify.com/track/{track_id}"
 
         command = [
             "spotdl", "download", spotify_url,
-            "--output", f"{download_path}/{{title}}.{{output-ext}}",
+            "--output", f"{download_path}/{clean_filename_base}.{{output-ext}}",
             "--log-level", "ERROR",
             "--headless",
             "--no-cache"
         ]
         
-        # افزودن پراکسی به دستور
         proxy = config.get_random_proxy()
         if proxy:
             command.extend(["--proxy", proxy])
             logger.info(f"Using proxy for spotdl: {proxy}")
 
-        # --- راه حل نهایی: افزودن کوکی یوتیوب به دستور ---
         if settings.YOUTUBE_COOKIES_FILE and os.path.exists(settings.YOUTUBE_COOKIES_FILE):
             command.extend(["--cookie", settings.YOUTUBE_COOKIES_FILE])
             logger.info(f"Using YouTube cookies file for spotdl: {settings.YOUTUBE_COOKIES_FILE}")
-        # --------------------------------------------------
 
         logger.info(f"Executing spotdl command: {' '.join(command)}")
 
@@ -275,27 +295,32 @@ async def handle_spotify_download(query, user, track_id, context, original_capti
         
         await _edit_message_safe(query, "فایل با بالاترین کیفیت دانلود شد. در حال آپلود به تلگرام... 🚀", query.message.photo)
         
-        info_dict = {}
-        with yt_dlp.YoutubeDL({'quiet': True, 'extract_flat': True}) as ydl:
-            try:
-                info_dict = await loop.run_in_executor(None, lambda: ydl.extract_info(spotify_url, download=False))
-            except Exception as e:
-                logger.warning(f"Could not get metadata for spotify track {track_id}: {e}")
+        # --- FIX: Create a rich and detailed caption ---
+        file_size_mb = os.path.getsize(filename) / 1024 / 1024
+        duration_str = time.strftime('%M:%S', time.gmtime(duration_ms / 1000))
+        
+        final_caption = (
+            f"🎧 **{title}**\n"
+            f"👤 **{artists}**\n\n"
+            f"💽 **آلبوم:** `{album_name}`\n"
+            f"🗓 **تاریخ انتشار:** `{release_date}`\n"
+            f"▪️ **حجم:** `{file_size_mb:.2f} MB`\n"
+            f"▪️ **مدت زمان:** `{duration_str}`"
+        )
 
-        final_caption = info_dict.get('title', os.path.basename(filename))
-        performer = info_dict.get('artist', 'Unknown Artist')
-        title = info_dict.get('track', 'Unknown Title')
-        duration = int(info_dict.get('duration', 0))
+        async with AsyncSessionLocal() as session:
+            with open(filename, 'rb') as file_to_send:
+                sent_message = await context.bot.send_audio(
+                    chat_id=user.user_id, audio=file_to_send,
+                    filename=f"{clean_filename_base}.mp3", caption=final_caption,
+                    title=title, performer=artists, duration=int(duration_ms / 1000),
+                    parse_mode='Markdown'
+                )
 
-        with open(filename, 'rb') as file_to_send:
-            sent_message = await context.bot.send_audio(
-                chat_id=user.user_id, audio=file_to_send,
-                filename=os.path.basename(filename), caption=final_caption,
-                title=title, performer=performer, duration=duration
-            )
-
-        await increment_download_count(user.user_id)
-        await log_activity(user.user_id, 'download', details="spotify:audio_hq")
+            # --- FIX: Correctly call increment_download_count and log_activity ---
+            await increment_download_count(session, user)
+            await log_activity(session, user, 'download', details="spotify:audio_hq")
+        
         await forward_download_to_log_channel(context, user, sent_message, "spotify_hq", spotify_url)
         await query.message.delete()
 
@@ -311,10 +336,12 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
     
-    user = await get_or_create_user(query)
-    if not can_download(user) or user.subscription_tier not in ['gold', 'diamond']:
-        await query.edit_message_text("برای این کار به اشتراک طلایی یا الماسی نیاز دارید.")
-        return
+    # In this function, we need to create a user object from the query
+    async with AsyncSessionLocal() as session:
+        user = await get_or_create_user(session, update)
+        if not can_download(user) or user.subscription_tier not in ['gold', 'diamond']:
+            await query.edit_message_text("برای این کار به اشتراک طلایی یا الماسی نیاز دارید.")
+            return
 
     playlist_id = query.data.split(':')[2]
     playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
@@ -366,8 +393,11 @@ async def handle_playlist_zip_download(update: Update, context: ContextTypes.DEF
             )
         
         await query.message.delete()
-        await increment_download_count(user.user_id)
-        await log_activity(user.user_id, 'download_playlist', details=f"youtube_zip:{playlist_id}")
+        async with AsyncSessionLocal() as session:
+            # Re-fetch user in new session to avoid detached instance error
+            user_to_update = await session.get(type(user), user.user_id)
+            await increment_download_count(session, user_to_update)
+            await log_activity(session, user_to_update, 'download_playlist', details=f"youtube_zip:{playlist_id}")
 
     except Exception as e:
         logger.error(f"Error creating playlist zip for {playlist_id}: {e}", exc_info=True)

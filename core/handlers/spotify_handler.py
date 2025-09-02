@@ -3,7 +3,6 @@
 import logging
 import spotipy
 import requests
-from requests.adapters import HTTPAdapter, Retry
 from musicxmatch_api import MusixMatchAPI
 from spotipy.oauth2 import SpotifyClientCredentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,29 +15,27 @@ from services.spotify import SpotifyService
 
 def create_spotify_session() -> spotipy.Spotify:
     """
-    یک نمونه Spotipy با یک session سفارشی ایجاد می‌کند که شامل چرخش پراکسی و تلاش مجدد است.
+    یک نمونه Spotipy با قابلیت استفاده از پراکسی ایجاد می‌کند.
+    این نسخه با کتابخانه‌های قدیمی‌تر spotipy سازگار است.
     """
-    session = requests.Session()
-    
-    proxy = config.get_random_proxy()
-    if proxy:
-        session.proxies = {"http": proxy, "https": proxy}
-
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
-    session.mount("https://", HTTPAdapter(max_retries=retries))
+    # --- FIX: استفاده از پراکسی به روش سازگارتر ---
+    proxy_url = config.get_random_proxy()
+    proxies = {
+        "http": proxy_url,
+        "https": proxy_url
+    } if proxy_url else None
 
     auth_manager = SpotifyClientCredentials(
         client_id=settings.SPOTIPY_CLIENT_ID, 
         client_secret=settings.SPOTIPY_CLIENT_SECRET
-        # FIX: The 'session' argument is removed from here as it's not a valid parameter.
     )
     
-    # FIX: The custom 'session' is correctly passed to the main Spotify client here.
+    # پراکسی مستقیما به کلاینت اصلی داده می‌شود
     return spotipy.Spotify(
         auth_manager=auth_manager,
         requests_timeout=15,
         retries=3,
-        session=session
+        proxies=proxies # استفاده از پارامتر proxies
     )
 
 sp = create_spotify_session()
@@ -135,12 +132,42 @@ async def handle_spotify_callback(update: Update, context: ContextTypes.DEFAULT_
             keyboard = [[InlineKeyboardButton("⬅️ بازگشت", callback_data=f"s:rs:{track_id_for_back_button}")]]
             await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+        elif command == 'artist_albums':
+            artist_id = item_id
+            page = int(original_item_id)
+            artist_info = sp.artist(artist_id)
+            offset = (page - 1) * 10
+            albums_result = sp.artist_albums(artist_id, album_type='album,single', limit=10, offset=offset)
+            
+            caption = f"💿 **{artist_info['name']}** - آلبوم‌ها و تک‌آهنگ‌ها (صفحه {page}):"
+            keyboard = []
+            for album in albums_result['items']:
+                keyboard.append([InlineKeyboardButton(f"📀 {album['name']}", callback_data=f"s:va:{album['id']}:{artist_id}")])
+
+            nav_buttons = []
+            if page > 1:
+                nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"s:artist_albums:{artist_id}:{page-1}"))
+            if albums_result['next']:
+                nav_buttons.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"s:artist_albums:{artist_id}:{page+1}"))
+            
+            if nav_buttons: keyboard.append(nav_buttons)
+            keyboard.append([InlineKeyboardButton("⬅️ بازگشت به هنرمند", callback_data=f"s:reshow_artist:{artist_id}")])
+            await query.edit_message_caption(caption=caption, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
         elif command == 'reshow_album':
             album_info = sp.album(item_id)
             spotify_service = SpotifyService()
             caption, reply_markup = spotify_service.build_album_panel(album_info)
             await query.message.delete()
             await context.bot.send_photo(chat_id=query.message.chat_id, photo=album_info['images'][0]['url'],
+                                         caption=caption, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        elif command == 'reshow_artist':
+            artist_info = sp.artist(item_id)
+            spotify_service = SpotifyService()
+            caption, reply_markup = spotify_service.build_artist_panel(artist_info)
+            await query.message.delete()
+            await context.bot.send_photo(chat_id=query.message.chat_id, photo=artist_info['images'][0]['url'],
                                          caption=caption, reply_markup=reply_markup, parse_mode='Markdown')
 
         elif command == 'c':

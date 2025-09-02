@@ -11,6 +11,9 @@ from database import database
 from core.handlers.service_manager import initialize_services
 from core.scheduler import setup_scheduler
 import config
+# --- FIX: وارد کردن مدیر کوکی و تنظیمات ---
+from core.cookie_manager import refresh_youtube_cookies
+from core.settings import settings
 
 uvloop.install()
 
@@ -34,14 +37,11 @@ logger.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-# کاهش سطح لاگ کتابخانه‌های پر سر و صدا برای تمیز نگه داشتن لاگ‌ها
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 logging.getLogger("aiohttp").setLevel(logging.WARNING)
-# این خط خطای 'Unclosed connection' را مخفی می‌کند
 logging.getLogger("asyncio").setLevel(logging.WARNING) 
-
 
 async def main() -> None:
     """ربات را به صورت غیرهمزمان راه‌اندازی و اجرا می‌کند."""
@@ -51,6 +51,12 @@ async def main() -> None:
     
     logger.info("Initializing services in database...")
     await initialize_services()
+
+    # --- FIX: رفرش اولیه کوکی‌ها در هنگام راه‌اندازی ---
+    if settings.YOUTUBE_EMAIL and settings.YOUTUBE_PASSWORD:
+        logger.info("Attempting initial cookie refresh on startup...")
+        # اجرای رفرش در پس‌زمینه تا مانع راه‌اندازی ربات نشود
+        asyncio.create_task(refresh_youtube_cookies())
 
     # اجرای اولیه اسکن پراکسی در هنگام راه‌اندازی ربات
     asyncio.create_task(config.update_and_test_proxies())
@@ -65,11 +71,14 @@ async def main() -> None:
         
         scheduler = setup_scheduler(application)
         
-        # زمان‌بندی اجرای اسکن پراکسی برای هر روز ساعت ۳ بامداد
         scheduler.add_job(config.update_and_test_proxies, 'cron', hour=3, minute=0)
         logger.info("Proxy update and validation job scheduled to run daily at 03:00.")
         
-        # این بخش ربات را در حالت اجرا نگه می‌دارد
+        # --- FIX: زمان‌بندی رفرش کوکی‌ها به صورت دوره‌ای (مثلا هر ۳ روز) ---
+        if settings.YOUTUBE_EMAIL and settings.YOUTUBE_PASSWORD:
+            scheduler.add_job(refresh_youtube_cookies, 'interval', days=3)
+            logger.info("Scheduled a periodic cookie refresh job to run every 3 days.")
+
         await asyncio.Event().wait()
 
 

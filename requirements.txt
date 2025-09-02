@@ -17,3 +17,4 @@ aiosqlite
 uvloop
 aiohttp
 spotdl
+webdriver_manager

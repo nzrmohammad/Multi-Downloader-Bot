@@ -1,4 +1,4 @@
-# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/core/handlers/callback_query_handler.py
+# core/handlers/callback_query_handler.py
 
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,7 +14,9 @@ from .spotify_handler import handle_spotify_callback
 from .download_handler import handle_download_callback, handle_playlist_zip_download
 from .plans_handler import show_plans
 from .locales import get_text
-from services.castbox import CastboxService # <--- ایمپورت جدید
+from services.castbox import CastboxService
+# --- FIX: ایمپورت جدید ---
+from services.youtube import YoutubeService
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +30,11 @@ async def handle_castbox_callback(update: Update, context: ContextTypes.DEFAULT_
     
     command, *params = query.data.split(':')[1:]
     
-    # یک نمونه از سرویس کست‌باکس برای دسترسی به متدهای آن ایجاد می‌کنیم
     castbox_service = CastboxService()
     
     if command == 'page':
         page = int(params[0])
         chat_id = int(params[1])
-        # لیست کامل قسمت‌ها را که قبلا ذخیره کرده بودیم، بازیابی می‌کنیم
         episodes = context.bot_data.get(f"castbox_eps_{chat_id}", [])
         if episodes:
             keyboard = castbox_service.build_episode_keyboard(episodes, chat_id=chat_id, page=page)
@@ -42,24 +42,36 @@ async def handle_castbox_callback(update: Update, context: ContextTypes.DEFAULT_
             
     elif command == 'dl':
         episode_id = params[0]
-        # لینک مستقیم قسمت را بر اساس شناسه انتخاب شده می‌سازیم
         episode_url = f"https://castbox.fm/ep/{episode_id}"
         
-        # پیام را ویرایش می‌کنیم تا به کاربر اطلاع دهیم دانلود در حال آماده‌سازی است
-        # نکته: چون متد process خودش پیام را ویرایش می‌کند، باید آبجکت message را به آن پاس دهیم.
-        # راه ساده‌تر این است که آبجکت update را مستقیما پاس دهیم.
         original_message = await query.edit_message_text(f"در حال آماده‌سازی برای دانلود قسمت انتخابی...")
         
-        # یک آبجکت update شبیه‌سازی شده می‌سازیم تا پیام صحیح را به متد process بدهیم
         class MockUpdate:
             def __init__(self, message, effective_user):
                 self.message = message
                 self.effective_user = effective_user
 
         mock_update = MockUpdate(original_message, query.from_user)
-
-        # متد اصلی process را برای شروع دانلود فراخوانی می‌کنیم
         await castbox_service.process(mock_update, context, user, episode_url)
+
+# --- FIX: هندلر جدید برای صفحه‌بندی پلی‌لیست‌های یوتیوب ---
+async def handle_youtube_channel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    """دکمه‌های صفحه‌بندی پلی‌لیست‌های یوتیوب را مدیریت می‌کند."""
+    query = update.callback_query
+    await query.answer()
+
+    command, page_str, chat_id_str = query.data.split(':')[1:]
+    page = int(page_str)
+    chat_id = int(chat_id_str)
+
+    playlists = context.bot_data.get(f"yt_pls_{chat_id}", [])
+    if playlists:
+        youtube_service = YoutubeService()
+        keyboard = youtube_service.build_playlist_keyboard(playlists, chat_id, page=page)
+        try:
+            await query.edit_message_reply_markup(reply_markup=keyboard)
+        except Exception as e:
+            logger.warning(f"Could not edit YouTube channel page message: {e}")
 
 
 async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,7 +84,6 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
     async with AsyncSessionLocal() as session:
         user = await user_manager.get_or_create_user(session, update)
 
-        # دیکشنری برای نگاشت پیشوند callback به تابع مربوطه
         handler_map = {
             'set_lang': set_language,
             'menu': handle_menu_callback,
@@ -84,15 +95,16 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
             's': handle_spotify_callback,
             'dl': handle_download_callback,
             'yt': handle_playlist_zip_download,
+            # --- FIX: افزودن هندلر جدید برای صفحه‌بندی یوتیوب ---
+            'yt_channel': handle_youtube_channel_callback,
             'spotify': handle_playlist_zip_download,
-            'castbox': handle_castbox_callback, # <--- هندلر جدید اضافه شد
+            'castbox': handle_castbox_callback,
         }
 
         if prefix in handler_map:
-            # پاس دادن آبجکت user به هندلرها برای جلوگیری از کوئری مجدد
             await handler_map[prefix](update, context, user)
-        elif prefix == 'promo': # هندلر پرومو کد جداگانه مدیریت می‌شود
-             pass # توسط ConversationHandler مدیریت می‌شود
+        elif prefix == 'promo':
+             pass
         else:
             logger.warning(f"Unknown callback prefix '{prefix}' from data: {query.data}")
 
@@ -105,7 +117,6 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE, user:
         await user_manager.set_user_language(session, user, lang)
         
     start_message = get_text('welcome', lang)
-    # آپدیت کردن زبان در خود آبجکت user برای نمایش صحیح منو
     user.language = lang
     await query.edit_message_text(start_message, reply_markup=get_main_menu_keyboard(user.user_id, user.language))
 
@@ -132,7 +143,6 @@ async def receive_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result_message = await user_manager.redeem_promo_code(session, user, code)
         await update.message.reply_text(result_message, parse_mode='Markdown')
         
-        # نمایش مجدد منوی اصلی
         start_message = get_text('welcome', user.language)
         await update.message.reply_text(start_message, reply_markup=get_main_menu_keyboard(user.user_id, user.language))
     return ConversationHandler.END
