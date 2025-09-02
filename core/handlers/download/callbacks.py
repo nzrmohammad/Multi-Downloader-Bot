@@ -1,16 +1,18 @@
-# nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/core/handlers/download/callbacks.py
+# core/handlers/download/callbacks.py
 
 import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from .downloader import start_actual_download, handle_playlist_zip_download
+# توابع دانلود از ماژول‌های جدید وارد می‌شوند
+from .downloader_general import start_actual_download
+from .downloader_playlist import handle_playlist_zip_download
+from .downloader_spotify import handle_spotify_download
 
 # Global dictionaries to manage download state
 download_requests = {}
 cancelled_tasks = {}
 
-# FIX: Added 'user' parameter to the function definition
 async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
     query = update.callback_query
     await query.answer()
@@ -32,12 +34,10 @@ async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("❌ لغو", callback_data="dl:cancel")]
         ]
         text = "آیا برای شروع دانلود آماده‌اید؟"
-        # The _edit_message_safe function should be imported here if it's in a utils file
-        # For now, we assume it's available or call the direct method
-        await query.message.edit_caption(
-            caption=f"{query.message.caption or query.message.text}\n\n{text}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        
+        # استفاده از تابع کمکی برای ویرایش پیام
+        from core.utils import edit_message_safe
+        await edit_message_safe(query, f"{query.message.caption or query.message.text}\n\n{text}", query.message.photo, InlineKeyboardMarkup(keyboard))
 
     elif command == 'confirm':
         request_key = parts[2]
@@ -47,7 +47,13 @@ async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT
             
         cancelled_tasks[request_key] = False
         dl_info = download_requests.pop(request_key)
-        await start_actual_download(query, user, dl_info, context, request_key)
+        
+        # مسیریابی به تابع دانلود مناسب
+        if dl_info.get('service') == 'spotify':
+            await handle_spotify_download(query, user, dl_info['resource_id'], context, dl_info.get('original_message_caption', ''))
+        else:
+            await start_actual_download(query, user, dl_info, context)
+
 
     elif command == 'cancel':
         if len(parts) > 2:
@@ -56,4 +62,5 @@ async def handle_download_callback(update: Update, context: ContextTypes.DEFAULT
         await query.message.delete()
 
 async def handle_playlist_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
+    # این تابع به ماژول دانلود پلی‌لیست منتقل شده است
     await handle_playlist_zip_download(update, context, user)
