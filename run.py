@@ -11,9 +11,6 @@ from database import database
 from core.handlers.service_manager import initialize_services
 from core.scheduler import setup_scheduler
 import config
-# --- FIX: وارد کردن مدیر کوکی و تنظیمات ---
-from core.cookie_manager import refresh_youtube_cookies
-from core.settings import settings
 
 uvloop.install()
 
@@ -52,12 +49,6 @@ async def main() -> None:
     logger.info("Initializing services in database...")
     await initialize_services()
 
-    # --- FIX: رفرش اولیه کوکی‌ها در هنگام راه‌اندازی ---
-    if settings.YOUTUBE_EMAIL and settings.YOUTUBE_PASSWORD:
-        logger.info("Attempting initial cookie refresh on startup...")
-        # اجرای رفرش در پس‌زمینه تا مانع راه‌اندازی ربات نشود
-        asyncio.create_task(refresh_youtube_cookies())
-
     # اجرای اولیه اسکن پراکسی در هنگام راه‌اندازی ربات
     asyncio.create_task(config.update_and_test_proxies())
 
@@ -74,11 +65,6 @@ async def main() -> None:
         scheduler.add_job(config.update_and_test_proxies, 'cron', hour=3, minute=0)
         logger.info("Proxy update and validation job scheduled to run daily at 03:00.")
         
-        # --- FIX: زمان‌بندی رفرش کوکی‌ها به صورت دوره‌ای (مثلا هر ۳ روز) ---
-        if settings.YOUTUBE_EMAIL and settings.YOUTUBE_PASSWORD:
-            scheduler.add_job(refresh_youtube_cookies, 'interval', days=3)
-            logger.info("Scheduled a periodic cookie refresh job to run every 3 days.")
-
         await asyncio.Event().wait()
 
 

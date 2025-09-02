@@ -28,10 +28,10 @@ class Settings:
     # Proxy Configuration
     PROXY_SOURCE_URL: str | None
     
-    # --- FIX: افزودن تنظیمات جدید برای لاگین اتوماتیک ---
-    YOUTUBE_COOKIES_FILE: str | None
-    YOUTUBE_EMAIL: str | None
-    YOUTUBE_PASSWORD: str | None
+    # --- FIX: افزودن تنظیمات جدید برای لاگین اینستاگرام ---
+    INSTAGRAM_USERNAME: str | None
+    INSTAGRAM_PASSWORD: str | None
+
 
     def __init__(self):
         # --- اعتبارسنجی و بارگذاری متغیرهای ضروری ---
@@ -57,10 +57,9 @@ class Settings:
         
         self.PROXY_SOURCE_URL = os.getenv("PROXY_SOURCE_URL", "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/main/http.txt")
         
-        # --- FIX: خواندن متغیرهای جدید از فایل .env ---
-        self.YOUTUBE_COOKIES_FILE = os.getenv("YOUTUBE_COOKIES_FILE")
-        self.YOUTUBE_EMAIL = os.getenv("YOUTUBE_EMAIL")
-        self.YOUTUBE_PASSWORD = os.getenv("YOUTUBE_PASSWORD")
+        # --- FIX: خواندن متغیرهای اینستاگرام از فایل .env ---
+        self.INSTAGRAM_USERNAME = os.getenv("INSTAGRAM_USERNAME")
+        self.INSTAGRAM_PASSWORD = os.getenv("INSTAGRAM_PASSWORD")
 
 # یک نمونه (instance) از کلاس تنظیمات ساخته می‌شود تا در کل پروژه از آن استفاده شود.
 settings = Settings()

@@ -9,7 +9,6 @@ requests
 musicxmatch-api
 deemix
 apscheduler
-selenium
 beautifulsoup4
 lxml
 mutagen
@@ -17,4 +16,4 @@ aiosqlite
 uvloop
 aiohttp
 spotdl
-webdriver_manager
+instaloader

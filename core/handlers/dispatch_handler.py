@@ -50,7 +50,10 @@ async def dispatch_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ {len(urls)} لینک دریافت شد. دانلودها به زودی ارسال خواهند شد.")
 
         for url in urls:
-            resolved_url = resolve_shortened_url(url)
+            # --- FIX: تمیز کردن لینک از کاراکترهای اضافی و اشتباه در انتها ---
+            cleaned_url = url.rstrip('`\'">.,').replace('%60', '')
+            
+            resolved_url = resolve_shortened_url(cleaned_url)
             found_service = False
             for service in SERVICES:
                 service_name = service.__class__.__name__.replace("Service", "").lower()
@@ -63,9 +66,14 @@ async def dispatch_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await service.process(update, context, user, resolved_url)
                     except Exception as e:
                         logger.error(f"Error processing {url} with {service_name}: {e}", exc_info=True)
-                        await context.bot.send_message(chat_id=user.user_id, text=f"❌ در پردازش لینک زیر خطایی رخ داد:\n`{url}`")
+                        await context.bot.send_message(chat_id=user.user_id, text=f"❌ در پردازش لینک زیر خطایی رخ داد:\n`{url}`", parse_mode='Markdown')
                     found_service = True
                     break
             
             if not found_service:
-                await context.bot.send_message(chat_id=user.user_id, text=f"لینک زیر پشتیبانی نمی‌شود: `{url}`")
+                # --- FIX: افزودن parse_mode و نمایش لینک تمیز شده ---
+                await context.bot.send_message(
+                    chat_id=user.user_id, 
+                    text=f"لینک زیر پشتیبانی نمی‌شود: `{resolved_url}`",
+                    parse_mode='Markdown'
+                )
