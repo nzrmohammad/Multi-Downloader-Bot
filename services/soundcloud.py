@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from services.base_service import BaseService
-from core.user_manager import can_download
+from core.handlers.user_manager import can_download
 from core.log_forwarder import forward_download_to_log_channel
 
 logger = logging.getLogger(__name__)

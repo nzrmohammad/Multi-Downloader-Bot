@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from core.settings import settings
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.handlers.user_manager import get_or_create_user, can_download
 from database.database import AsyncSessionLocal
 
 # --- FIX: گسترش الگو برای شناسایی لینک هنرمند ---

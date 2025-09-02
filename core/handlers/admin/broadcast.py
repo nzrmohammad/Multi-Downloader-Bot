@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 from . import states
 
 async def receive_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

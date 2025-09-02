@@ -3,7 +3,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 from .menu_handler import get_main_menu_keyboard
 from .plans_handler import show_plans
 from .locales import get_text

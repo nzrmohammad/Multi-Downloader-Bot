@@ -9,7 +9,7 @@ from telegram import Update  # <--- این خط اضافه شد
 from telegram.ext import ContextTypes
 
 import config
-from core import user_manager
+from core.handlers import user_manager
 from database.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)

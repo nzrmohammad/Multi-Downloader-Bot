@@ -11,7 +11,7 @@ from yt_dlp.utils import DownloadError
 
 import config
 from core.settings import settings
-from core import user_manager  # <--- تغییر در این خط
+from core.handlers import user_manager
 from core.log_forwarder import forward_download_to_log_channel
 from core.utils import create_progress_bar, edit_message_safe
 from database.database import AsyncSessionLocal

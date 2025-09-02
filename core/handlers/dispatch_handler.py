@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 
 from database.database import AsyncSessionLocal
 from services import SERVICES
-from core import user_manager
+from core.handlers import user_manager
 from .service_manager import get_service_status
 
 logger = logging.getLogger(__name__)

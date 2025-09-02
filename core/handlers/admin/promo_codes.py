@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 from . import states
 from .ui import build_admin_main_menu
 

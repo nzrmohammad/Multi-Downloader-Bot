@@ -3,7 +3,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database.database import AsyncSessionLocal
-from core.user_manager import get_download_stats, set_user_quality_setting, User
+from core.handlers.user_manager import get_download_stats, set_user_quality_setting, User
 import config
 from .locales import get_text
 from .service_manager import get_all_statuses

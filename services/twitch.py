@@ -3,7 +3,7 @@ import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
-from core.user_manager import can_download
+from core.handlers.user_manager import can_download
 
 TWITCH_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?twitch\.tv/(?:videos/(\d+)|clips/([a-zA-Z0-9_-]+)|([a-zA-Z0-9_]+)/clip/([a-zA-Z0-9_-]+))")
 

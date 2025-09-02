@@ -1,7 +1,7 @@
 # nzrmohammad/multi-downloader-bot/Multi-Downloader-Bot-51607f5e4788060c5ecbbd007b59d05e883abb58/core/handlers/admin/ui.py
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from core import user_manager
+from core.handlers import user_manager
 
 async def build_admin_main_menu():
     """منوی اصلی پنل ادمین را ایجاد می‌کند."""

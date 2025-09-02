@@ -5,7 +5,7 @@ import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
-from core.user_manager import get_or_create_user, can_download
+from core.handlers.user_manager import get_or_create_user, can_download
 
 YOUTUBE_URL_PATTERN = re.compile(
     r"(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/"

@@ -4,7 +4,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
 
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 from .menu_handler import (
     handle_menu_callback, handle_settings_callback, handle_about_callback,
     handle_account_callback, handle_service_status_callback, get_main_menu_keyboard

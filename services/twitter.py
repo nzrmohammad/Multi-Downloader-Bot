@@ -5,7 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.base_service import BaseService
 from core.settings import settings
-from core.user_manager import can_download
+from core.handlers.user_manager import can_download
 
 TWITTER_URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?(twitter|x)\.com/([a-zA-Z0-9_]+)/status/(\d+)")
 

@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 import config
 from core.settings import settings
-from core import user_manager # <--- تغییر در این خط
+from core.handlers import user_manager # <--- تغییر در این خط
 from core.log_forwarder import forward_download_to_log_channel
 from core.utils import edit_message_safe
 from database.database import AsyncSessionLocal

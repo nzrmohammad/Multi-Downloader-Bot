@@ -10,7 +10,7 @@ from instagrapi import Client
 from instagrapi.exceptions import MediaNotFound, UserNotFound
 
 from services.base_service import BaseService
-from core.user_manager import can_download
+from core.handlers.user_manager import can_download
 from core.settings import settings
 
 logger = logging.getLogger(__name__)

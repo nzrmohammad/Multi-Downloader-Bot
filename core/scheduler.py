@@ -5,7 +5,7 @@ from telegram.ext import Application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 
 logger = logging.getLogger(__name__)
 
