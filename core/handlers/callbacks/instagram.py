@@ -43,8 +43,10 @@ async def handle_instagram_profile_callback(update: Update, context: ContextType
             await query.message.reply_text("در حال دانلود هایلایت‌ها... (این فرآیند ممکن است زمان‌بر باشد)")
             highlights = await loop.run_in_executor(None, lambda: client.user_highlights(user_pk))
             for highlight in highlights:
-                paths = await loop.run_in_executor(None, lambda: client.highlight_download(highlight.pk, folder="downloads"))
-                download_paths.extend(paths)
+                highlight_info = await loop.run_in_executor(None, lambda: client.highlight_info(highlight.pk))
+                for story in highlight_info.items:
+                    path = await loop.run_in_executor(None, lambda: client.story_download(story.pk, folder="downloads"))
+                    download_paths.append(path)
 
         if not download_paths:
             await query.message.reply_text("هیچ محتوایی برای دانلود یافت نشد.")
