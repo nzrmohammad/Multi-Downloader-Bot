@@ -2,7 +2,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from core.settings import settings
-from core.user_manager import User
+from core.handlers.user_manager import User
 
 async def forward_download_to_log_channel(context: ContextTypes.DEFAULT_TYPE, user: User, sent_message, service_name, url):
     """فایل دانلود شده را به کانال لاگ ارسال می‌کند."""

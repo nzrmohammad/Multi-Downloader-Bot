@@ -16,4 +16,4 @@ aiosqlite
 uvloop
 aiohttp
 spotdl
-instaloader
+instagrapi
