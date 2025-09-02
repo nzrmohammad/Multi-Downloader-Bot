@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 import logging
 
 from database.database import AsyncSessionLocal
-from core import user_manager
+from core.handlers import user_manager
 from .ui import build_user_management_panel
 from . import states
 

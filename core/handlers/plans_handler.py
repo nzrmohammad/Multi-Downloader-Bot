@@ -3,7 +3,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from .menu_handler import get_main_menu_keyboard
-from core.user_manager import User
+from core.handlers.user_manager import User
 
 async def show_plans(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User):
     """Displays the subscription plans and features to the user."""
